@@ -9,10 +9,12 @@ use InvalidArgumentException;
 /**
  * How long and how a worker runs.
  *
- * - `maxSeconds`: stop taking new jobs after this long; 0 runs until stopped
- *   (a long-running worker under a supervisor).
+ * - `maxSeconds`: stop taking new jobs after this long, and stop as soon as
+ *   nothing is due; 0 runs until stopped, waiting for work (a long-running
+ *   worker under a supervisor).
  * - `maxJobs`: stop after this many jobs; 0 for no limit.
- * - `sleepSeconds`: the wait between looks at an empty queue.
+ * - `sleepSeconds`: with no time limit, the wait between looks at an empty
+ *   queue.
  * - `memoryLimitBytes`: stop once the process uses this much; 0 for no limit.
  * - `lockSeconds`: how long the worker lock lasts between renewals. A worker
  *   that dies keeps others out for at most this long.

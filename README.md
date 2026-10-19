@@ -68,9 +68,9 @@ return [
         'worker'   => [
             'name'                => 'default', // the lock and heartbeat
             'queues'              => [],        // all
-            'max_seconds'         => 50,        // 0: run until stopped
+            'max_seconds'         => 50,        // 0: run until stopped, waiting for work
             'max_jobs'            => 0,         // no limit
-            'sleep_seconds'       => 5,         // wait when there is nothing to do
+            'sleep_seconds'       => 5,         // with no time limit, the wait when nothing is due
             'memory_limit_mb'     => 128,
             'lock_seconds'        => 300,       // how long a dead worker keeps others out
             'stale_after_seconds' => 3600,      // a job locked this long is retried
@@ -132,8 +132,9 @@ Returning marks the job done. Anything thrown is recorded as the job's last erro
 | Anything else | The next attempt waits 1, 2, 4 … 1,024 minutes, then 24 hours. |
 
 A job gets 13 attempts over about two and a half days. After a failure that follows the 24-hour wait, it is marked
-failed. A missing handler is an ordinary failure, so a job for a disabled add-on waits and retries rather than
-vanishing.
+failed. A job whose handler isn't in the container (its add-on is disabled, say) fails at once; retry it from the
+screen once the handler is back. An error while the container builds a handler is an ordinary failure, since it may
+pass.
 
 States: `waiting` (new, or waiting for a retry), `running` (locked by the worker running it), `done` and `failed`.
 Finished jobs stay in the table.
@@ -150,9 +151,10 @@ It needs the host's PSR-11 container: a PHP file that returns it, given as `--co
 `CONTENIR_QUEUE_CONTAINER` environment variable, or at `config/container.php` by default.
 
 Each run takes the worker lock. If another run still holds it, this one says so and stops. Otherwise it retries jobs
-whose worker died mid-run, deletes done jobs older than a week, and then runs due jobs one at a time. When there is
-nothing to do it waits five seconds and looks again. After 50 seconds it takes no new jobs, finishes the one it is
-running, releases the lock and exits. Every turn renews the lock, and the renewal is the heartbeat.
+whose worker died mid-run, deletes done jobs older than a week, queues any schedules that are due, and runs due jobs
+one at a time. It stops as soon as nothing is due, so on a quiet site each run is over in a moment; a job pushed
+mid-minute waits for the next run. After 50 seconds it takes no new jobs, finishes the one it is running, releases the
+lock and exits. Every turn renews the lock, and the renewal is the heartbeat.
 
 For a busy site, run it under a process supervisor instead:
 
@@ -160,7 +162,8 @@ For a busy site, run it under a process supervisor instead:
 php vendor/bin/contenir-queue --daemon
 ```
 
-It runs until it receives SIGTERM or SIGINT (with the `pcntl` extension), reaches its memory limit or `--max-jobs`,
+It runs with no time limit and waits for work, looking again every five seconds when nothing is due. It stops when
+it receives SIGTERM or SIGINT (with the `pcntl` extension), reaches its memory limit or `--max-jobs`,
 then finishes its current job and exits for the supervisor to restart it. `--help` lists the options, which override
 the `worker` settings.
 
@@ -204,6 +207,13 @@ $schedules->add(new Schedule(
 
 `Frequency::everyMinutes()` and `Frequency::cron()` match contenir/extension-api's `Frequency`, so a host maps an
 add-on's `Registry::schedule()` declarations onto these directly. A minute is the finest interval.
+
+Cron expressions have the standard five fields: minute, hour, day of month, month and day of week. A field takes `*`,
+numbers, ranges (`1-5`), steps (`*/15`, `1-30/5`) and lists (`0,30`). Months and days also take their names (`jan`,
+`mon-fri`), and Sunday is 0 or 7. When both day fields are restricted, either one matching is enough, as in cron
+itself. `@hourly`, `@daily` (or `@midnight`), `@weekly`, `@monthly` and `@yearly` (or `@annually`) are accepted too.
+An expression is read on the wall clock of its time zone; a time that a daylight-saving change skips runs an hour
+later, and a time that it repeats runs once.
 
 The worker checks for due schedules on every turn, and so does the drain. An interval schedule runs as soon as it is
 first seen, then keeps to its beat; a cron schedule waits for its next matching time. If the job from the last run is

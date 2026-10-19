@@ -5,18 +5,14 @@ declare(strict_types=1);
 namespace Contenir\Queue\Schedule;
 
 use Contenir\Queue\Exception\ScheduleException;
-use Cron\CronExpression;
 use DateTimeImmutable;
 use DateTimeZone;
-use Exception;
 use InvalidArgumentException;
-
-use function intdiv;
 
 /**
  * How often a schedule runs: every so many minutes, or on a cron expression
- * read in a time zone. The worker looks for due schedules every few seconds,
- * so a minute is the finest interval. The names follow contenir/extension-api's
+ * read in a time zone. The worker looks for due schedules on every turn, so a
+ * minute is the finest interval. The names follow contenir/extension-api's
  * Frequency, which hosts map onto this one.
  *
  * @api
@@ -27,22 +23,21 @@ final readonly class Frequency
         public ?int $minutes,
         public ?string $cron,
         public DateTimeZone $timezone,
+        private RecurrenceInterface $recurrence,
     ) {}
 
     /**
      * @param string $expression Five fields (minute, hour, day of month, month, day of week) or an alias such as
-     *     "@daily".
+     *     "@daily". See {@see CronExpression} for what each field takes.
      * @param DateTimeZone|null $timezone The zone the expression's times are in; UTC if not given.
      *
      * @throws InvalidArgumentException When the expression is not valid cron.
      */
     public static function cron(string $expression, ?DateTimeZone $timezone = null): self
     {
-        if (! CronExpression::isValidExpression($expression)) {
-            throw new InvalidArgumentException("\"{$expression}\" is not a cron expression");
-        }
+        $timezone ??= CronExpression::utc();
 
-        return new self(null, $expression, $timezone ?? self::utc());
+        return new self(null, $expression, $timezone, new Cron(CronExpression::parse($expression), $timezone));
     }
 
     /**
@@ -54,15 +49,7 @@ final readonly class Frequency
             throw new InvalidArgumentException("A schedule can run at most once a minute, not every {$minutes}");
         }
 
-        return new self($minutes, null, self::utc());
-    }
-
-    /**
-     * @mago-expect analysis:unhandled-thrown-type "UTC" is always a valid time zone.
-     */
-    private static function utc(): DateTimeZone
-    {
-        return new DateTimeZone('UTC');
+        return new self($minutes, null, CronExpression::utc(), new Interval($minutes));
     }
 
     /**
@@ -85,7 +72,7 @@ final readonly class Frequency
      */
     public function first(DateTimeImmutable $now): DateTimeImmutable
     {
-        return null === $this->cron ? $now : $this->next($now, $now);
+        return $this->recurrence->first($now);
     }
 
     /**
@@ -98,23 +85,6 @@ final readonly class Frequency
      */
     public function next(DateTimeImmutable $due, DateTimeImmutable $now): DateTimeImmutable
     {
-        $minutes = $this->minutes;
-        if (null !== $minutes) {
-            $interval = $minutes * 60;
-            $missed   = intdiv($now->getTimestamp() - $due->getTimestamp(), $interval);
-            $seconds  = ($missed + 1) * $interval;
-
-            return $due->modify("{$seconds} seconds");
-        }
-
-        $cron = $this->cron ?? '';
-
-        try {
-            $next = (new CronExpression($cron))->getNextRunDate($now->setTimezone($this->timezone));
-        } catch (Exception $e) {
-            throw ScheduleException::neverDue($cron, $e);
-        }
-
-        return DateTimeImmutable::createFromMutable($next)->setTimezone(self::utc());
+        return $this->recurrence->next($due, $now);
     }
 }

@@ -46,7 +46,7 @@ final class WorkerBinaryTest extends TestCase
         static::assertSame(
             [
                 WorkerCommand::OK,
-                'Worker default stopped (time up): 0 jobs run, 0 stale jobs recovered, 0 old jobs deleted.',
+                'Worker default stopped (queue empty): 0 jobs run, 0 stale jobs recovered, 0 old jobs deleted.',
             ],
             [$code, $output],
         );

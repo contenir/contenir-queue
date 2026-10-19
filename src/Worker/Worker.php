@@ -13,18 +13,16 @@ use DateTimeImmutable;
 use Psr\Clock\ClockInterface;
 use Psr\Log\LoggerInterface;
 
-use function max;
-use function min;
-
 /**
  * Takes the worker lock, then runs due jobs one at a time until a limit is
  * reached or it is stopped. Each turn renews the lock, which is the heartbeat
  * a host checks to know background jobs are running, and queues the jobs of
  * any schedules that have fallen due.
  *
- * Cron runs it every minute with a time limit just under a minute: a run that
- * finds the lock taken stops at once. Under a supervisor it runs with no time
- * limit, and stops at its memory limit or on {@see stop()}.
+ * Cron runs it every minute with a time limit just under a minute. It stops
+ * as soon as nothing is due, or at once if another run holds the lock. Under a
+ * supervisor it runs with no time limit, waits when nothing is due, and stops
+ * at its memory limit or on {@see stop()}.
  *
  * @api
  */
@@ -100,19 +98,6 @@ final class Worker
         $this->stopping = true;
     }
 
-    /**
-     * How long to wait for work: the sleep time, or what is left of the time
-     * limit if that is less.
-     */
-    private function idleWait(WorkerOptions $options, Stopwatch $stopwatch): int
-    {
-        if (0 === $options->maxSeconds) {
-            return $options->sleepSeconds;
-        }
-
-        return max(1, min($options->sleepSeconds, (int) ($options->maxSeconds - $stopwatch->elapsed())));
-    }
-
     private function stopReason(WorkerOptions $options, Stopwatch $stopwatch, int $ran): ?StopReason
     {
         return match (true) {
@@ -148,7 +133,11 @@ final class Worker
 
             $this->scheduler->tick();
             if (null === $this->runner->runNext($options->queues, $identity->lock)) {
-                $this->process->sleep($this->idleWait($options, $stopwatch));
+                if ($options->maxSeconds > 0) {
+                    return [StopReason::QueueEmpty, $ran];
+                }
+
+                $this->process->sleep($options->sleepSeconds);
 
                 continue;
             }

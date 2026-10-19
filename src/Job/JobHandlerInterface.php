@@ -13,7 +13,8 @@ use Throwable;
  * Returning means the job is done. Throwing {@see RetryLaterException} asks
  * for another attempt at a given time (an HTTP Retry-After, say), throwing
  * {@see UnrecoverableJobException} fails the job at once, and any other
- * exception retries it with back-off until the attempts run out.
+ * exception retries it with back-off until the attempts run out. A job whose
+ * handler is not in the container fails at once.
  *
  * @api
  */
