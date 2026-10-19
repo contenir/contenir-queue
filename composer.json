@@ -73,7 +73,7 @@
             "@putenv CONTENIR_TEST_DB_PLATFORM=mysql",
             "phpunit --colors=always --testsuite integration"
         ],
-        "test-coverage": "phpunit --colors=always --coverage-clover clover.xml",
+        "test-coverage": "@php -d pcov.directory=. -d pcov.exclude=#/vendor/# vendor/bin/phpunit --colors=always --coverage-clover clover.xml",
         "mutation-test": "infection"
     },
     "config": {
