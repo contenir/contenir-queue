@@ -13,6 +13,7 @@ use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 
 use function array_map;
+use function array_values;
 use function sort;
 
 #[Group('integration')]
@@ -46,6 +47,29 @@ final class MigrationsTest extends TestCase
                 'updated_at',
             ],
             $columns,
+        );
+    }
+
+    #[Test]
+    public function createsTheScheduleTables(): void
+    {
+        $inspector = new SchemaInspector($this->adapter, TestDatabase::metadata($this->adapter));
+        $columns   = static function (string $table) use ($inspector): array {
+            $names = array_map(
+                static fn(array $column): string => (string) $column['name'],
+                array_values($inspector->getColumns($table)),
+            );
+            sort($names);
+
+            return $names;
+        };
+
+        static::assertSame(
+            [
+                ['last_job_id', 'last_run_at', 'name',   'next_run_at', 'updated_at'],
+                ['due_at',      'id',          'job_id', 'recorded_at', 'schedule'],
+            ],
+            [$columns('queue_schedule'), $columns('queue_schedule_run')],
         );
     }
 

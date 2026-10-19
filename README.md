@@ -13,6 +13,10 @@ and add-ons can hand work to the background and know it will run.
   heartbeat a host can check. It also runs under a process supervisor.
 - **Draining without cron**: a web request can run a few due jobs after its response has been sent, so a site whose
   cron entry is missing slows down instead of stopping.
+- **Schedules**: recurring work every so many minutes or on a cron expression. Each run is recorded, and a run whose
+  last job hasn't finished is skipped.
+- **Data for screens and checks**, with no UI: jobs by state with retry and delete, schedules with their last and next
+  runs, and the heartbeat behind a "Background jobs aren't running" warning.
 
 It is framework free: job handlers come from any PSR-11 container, logging is PSR-3, time is a PSR-20 clock, and
 storage is [php-db](https://github.com/php-db/phpdb). There are no Laminas MVC or Mezzio types; a host wires it in.
@@ -73,6 +77,11 @@ return [
             'prune_after_days'    => 7,         // done jobs older than this are deleted; 0 keeps them
         ],
         'drain'    => ['max_jobs' => 3, 'max_seconds' => 2, 'skip_when_heartbeat_within' => 120],
+        'timezone' => '',                                     // for cron schedules; '' is PHP's default
+        'schedules' => [
+            'forms.retention' => ['job' => RedactExpiredEntries::class, 'cron' => '15 3 * * *'],
+            'search.reindex'  => ['job' => Reindex::class, 'every_minutes' => 60, 'payload' => ['full' => false]],
+        ],
     ],
 ];
 ```
@@ -173,6 +182,60 @@ $container->get(Drainer::class)->drain();
 
 It runs at most three jobs and starts none after two seconds. It does nothing while the worker's heartbeat is less
 than two minutes old, so it only works when cron doesn't. It doesn't delete old done jobs; the worker does that.
+
+## Schedules
+
+A schedule pushes a job each time it falls due. Configure them under `schedules` (above), or add them to the
+`Schedules` service as the host boots:
+
+```php
+use Contenir\Queue\Schedule\Frequency;
+use Contenir\Queue\Schedule\Schedule;
+use Contenir\Queue\Schedule\Schedules;
+
+$schedules = $container->get(Schedules::class);
+$schedules->add(new Schedule('mailchimp.sync', SyncAudience::class, Frequency::everyMinutes(15)));
+$schedules->add(new Schedule(
+    'forms.retention',
+    RedactExpiredEntries::class,
+    Frequency::cron('15 3 * * *', new DateTimeZone('Australia/Sydney')),
+));
+```
+
+`Frequency::everyMinutes()` and `Frequency::cron()` match contenir/extension-api's `Frequency`, so a host maps an
+add-on's `Registry::schedule()` declarations onto these directly. A minute is the finest interval.
+
+The worker checks for due schedules on every turn, and so does the drain. An interval schedule runs as soon as it is
+first seen, then keeps to its beat; a cron schedule waits for its next matching time. If the job from the last run is
+still waiting or running, the run is skipped. Either way it is recorded in `queue_schedule_run`. Runs missed while
+nothing was running are not made up: the schedule runs once and moves on to its next time.
+
+## Screens and checks
+
+`QueueMonitor` has what a host's screens need, and draws nothing:
+
+```php
+use Contenir\Queue\Job\JobState;
+use Contenir\Queue\Monitor\QueueMonitor;
+
+$monitor = $container->get(QueueMonitor::class);
+
+$monitor->counts();                     // JobCounts: waiting, running, done, failed
+$monitor->jobs(JobState::Failed, 50);   // newest first; waiting jobs by next attempt
+$monitor->retry($id);                   // a failed job gets a fresh set of attempts
+$monitor->delete($id);                  // any job that isn't running
+$monitor->schedules();                  // ScheduleStatus: frequency, last run and its job's state, next run
+$monitor->runs('forms.retention');      // a schedule's recent runs, skipped ones included
+
+$health = $monitor->health();           // QueueHealth
+if ($health->isStopped()) {
+    // "Background jobs aren't running. {$health->waiting} jobs are waiting; the oldest is
+    //  {$health->oldestWaitingAge} seconds old."
+}
+```
+
+`isConfigured()` is true while the worker has written a heartbeat in the last 10 minutes, and `isStopped()` once it is
+over an hour old (or the worker has never run), as the extensions plan sets out. Both take another threshold.
 
 ## Development
 

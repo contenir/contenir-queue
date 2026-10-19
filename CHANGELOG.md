@@ -25,5 +25,13 @@ adheres to [Semantic Versioning](https://semver.org/).
   hour) and deletes done jobs older than seven days.
 - `Drainer::drain()`, for a host to call after the response has been sent: it runs up to three due jobs within two
   seconds, unless the worker's heartbeat is under two minutes old.
+- Schedules: `Schedule` with a `Frequency` (`everyMinutes()`, or `cron()` in a time zone, using
+  dragonmantank/cron-expression), added to the `Schedules` service or configured under `contenir_queue.schedules`.
+  `Scheduler::tick()`, run by the worker on every turn and by the drain, pushes the job of each schedule that has
+  fallen due. A run whose last job is still waiting or running is skipped. Each run is recorded in
+  `queue_schedule_run`, and the schedule's state is kept in `queue_schedule`.
+- `QueueMonitor`, the data for a host's screens and checks: job counts, jobs by state, retry and delete, schedules
+  with their last and next runs, a schedule's recent runs, and `QueueHealth` with the heartbeat's age, what is
+  waiting and what has failed.
 - `ConfigProvider` and PSR-11 factories, configured under `contenir_queue`.
 - Mago, PHPUnit unit and integration suites (SQLite, and MySQL in CI), Infection (MSI 100%) and Codecov in CI.

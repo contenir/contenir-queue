@@ -8,12 +8,16 @@ use Closure;
 use Contenir\Queue\Job\Backoff;
 use Contenir\Queue\Job\Job;
 use Contenir\Queue\Job\JobRunner;
+use Contenir\Queue\Queue;
+use Contenir\Queue\Schedule\Scheduler;
+use Contenir\Queue\Schedule\Schedules;
 use Contenir\Queue\Storage\JobStoreInterface;
 use Contenir\Queue\Tests\TestAsset\Clock\MutableClock;
 use Contenir\Queue\Tests\TestAsset\Container\ArrayContainer;
 use Contenir\Queue\Tests\TestAsset\Job\CallbackHandler;
 use Contenir\Queue\Tests\TestAsset\Log\RecordingLogger;
 use Contenir\Queue\Tests\TestAsset\Storage\InMemoryJobStore;
+use Contenir\Queue\Tests\TestAsset\Storage\InMemoryScheduleStore;
 use Contenir\Queue\Tests\TestAsset\Storage\InMemoryWorkerStore;
 use Contenir\Queue\Worker\Drainer;
 use Contenir\Queue\Worker\DrainOptions;
@@ -42,6 +46,12 @@ final class WorkerKit
 
     public readonly Housekeeping $housekeeping;
 
+    public readonly Schedules $schedules;
+
+    public readonly InMemoryScheduleStore $scheduleStore;
+
+    public readonly Scheduler $scheduler;
+
     /**
      * @param ?Closure(WorkerKit): void $onSleep
      */
@@ -68,7 +78,22 @@ final class WorkerKit
             $this->clock,
             $this->logger,
         );
-        $this->housekeeping = new Housekeeping($this->jobs, $this->runner, $this->clock, $this->logger);
+        $this->schedules     = new Schedules();
+        $this->scheduleStore = new InMemoryScheduleStore($this->jobs);
+        $this->scheduler     = new Scheduler(
+            $this->schedules,
+            $this->scheduleStore,
+            new Queue($this->jobs, $this->clock),
+            $this->clock,
+            $this->logger,
+        );
+        $this->housekeeping = new Housekeeping(
+            $this->jobs,
+            $this->scheduleStore,
+            $this->runner,
+            $this->clock,
+            $this->logger,
+        );
     }
 
     public static function identity(): WorkerIdentity
@@ -78,7 +103,14 @@ final class WorkerKit
 
     public function drainer(DrainOptions $options = new DrainOptions()): Drainer
     {
-        return new Drainer($this->runner, $this->housekeeping, $this->workers, $this->clock, $options);
+        return new Drainer(
+            $this->runner,
+            $this->housekeeping,
+            $this->workers,
+            $this->scheduler,
+            $this->clock,
+            $options,
+        );
     }
 
     /**
@@ -102,6 +134,7 @@ final class WorkerKit
             $this->runner,
             $this->housekeeping,
             $this->workers,
+            $this->scheduler,
             $this->clock,
             $this->logger,
             $this->process,

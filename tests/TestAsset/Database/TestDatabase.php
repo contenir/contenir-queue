@@ -30,7 +30,7 @@ final class TestDatabase
     /**
      * Every table the queue's migrations create, plus the runner's own.
      */
-    public const array TABLES = ['queue_job', 'queue_worker', 'migrations'];
+    public const array TABLES = ['queue_job', 'queue_worker', 'queue_schedule', 'queue_schedule_run', 'migrations'];
 
     public static function connect(): AdapterInterface
     {

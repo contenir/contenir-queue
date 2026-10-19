@@ -8,6 +8,7 @@ use Contenir\Queue\Clock\SystemClock;
 use Contenir\Queue\Container\QueueConfig;
 use Contenir\Queue\Exception\ConfigurationException;
 use Contenir\Queue\Job\Backoff;
+use Contenir\Queue\Schedule\Schedule;
 use Contenir\Queue\Storage\JobStoreInterface;
 use Contenir\Queue\Tests\TestAsset\Clock\MutableClock;
 use Contenir\Queue\Tests\TestAsset\Container\ArrayContainer;
@@ -23,6 +24,9 @@ use Psr\Clock\ClockInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use stdClass;
+
+use function array_map;
+use function date_default_timezone_get;
 
 #[Group('unit')]
 final class QueueConfigTest extends TestCase
@@ -90,6 +94,29 @@ final class QueueConfigTest extends TestCase
         $adapter = $this->createStub(AdapterInterface::class);
 
         static::assertSame($adapter, self::config([], [AdapterInterface::class => $adapter])->adapter());
+    }
+
+    #[Test]
+    public function aScheduleNeedsCronOrAnInterval(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage(
+            'The setting "contenir_queue.schedules.sync.every_minutes" must be given',
+        );
+
+        self::config(['schedules' => ['sync' => ['job' => 'sync.job']]])->schedules();
+    }
+
+    #[Test]
+    public function aScheduleTimeZoneMustExist(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage(
+            'The setting "contenir_queue.schedules.sync.timezone" must be a time zone, not "Mars/Olympus"',
+        );
+
+        self::config(['schedules' => ['sync' => ['job' => 'j', 'cron' => '@daily', 'timezone' => 'Mars/Olympus']]])
+            ->schedules();
     }
 
     #[Test]
@@ -205,6 +232,12 @@ final class QueueConfigTest extends TestCase
     }
 
     #[Test]
+    public function noSchedulesByDefault(): void
+    {
+        static::assertSame([], self::config()->schedules()->all());
+    }
+
+    #[Test]
     public function rejectsAnAdapterEntryOfTheWrongType(): void
     {
         $this->expectException(ConfigurationException::class);
@@ -230,9 +263,67 @@ final class QueueConfigTest extends TestCase
     }
 
     #[Test]
+    public function schedulesFromSettings(): void
+    {
+        $schedules = self::config([
+            'timezone'  => 'Australia/Perth',
+            'schedules' => [
+                'sync'      => [
+                    'job'           => 'sync.job',
+                    'every_minutes' => 15,
+                    'payload'       => ['all' => true],
+                    'queue'         => 'mail',
+                ],
+                'nightly'   => ['job' => 'nightly.job', 'cron' => '0 2 * * *'],
+                'retention' => ['job' => 'retention.job', 'cron' => '@daily', 'timezone' => 'Australia/Sydney'],
+                5           => ['job' => 'five.job', 'every_minutes' => 5],
+            ],
+        ])
+            ->schedules()
+            ->all();
+
+        static::assertSame(
+            [
+                ['sync', 'sync.job', 'every 15 minutes', ['all' => true], 'mail'],
+                ['nightly', 'nightly.job', '0 2 * * * (Australia/Perth)', [], 'default'],
+                ['retention', 'retention.job', '@daily (Australia/Sydney)', [], 'default'],
+                ['5', 'five.job', 'every 5 minutes', [], 'default'],
+            ],
+            array_map(static fn(Schedule $s): array => [
+                $s->name,
+                $s->jobClass,
+                $s->frequency->describe(),
+                $s->payload,
+                $s->queue,
+            ], $schedules),
+        );
+    }
+
+    #[Test]
     public function systemClockWhenTheContainerHasNone(): void
     {
         static::assertInstanceOf(SystemClock::class, self::config()->clock());
+    }
+
+    #[Test]
+    public function timezoneDefaultsToPhps(): void
+    {
+        static::assertSame(date_default_timezone_get(), self::config()->timezone()->getName());
+    }
+
+    #[Test]
+    public function timezoneFromSettings(): void
+    {
+        static::assertSame('Australia/Sydney', self::config(['timezone' => 'Australia/Sydney'])->timezone()->getName());
+    }
+
+    #[Test]
+    public function timezoneMustExist(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage('The setting "contenir_queue.timezone" must be a time zone, not "Nowhere"');
+
+        self::config(['timezone' => 'Nowhere'])->timezone();
     }
 
     #[Test]

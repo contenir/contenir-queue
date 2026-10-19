@@ -6,6 +6,7 @@ namespace Contenir\Queue\Container;
 
 use Contenir\Queue\Exception\ConfigurationException;
 use Contenir\Queue\Job\JobRunner;
+use Contenir\Queue\Schedule\Scheduler;
 use Contenir\Queue\Storage\WorkerStoreInterface;
 use Contenir\Queue\Worker\Drainer;
 use Contenir\Queue\Worker\Housekeeping;
@@ -29,6 +30,7 @@ final class DrainerFactory
             $config->get(JobRunner::class),
             $config->get(Housekeeping::class),
             $config->get(WorkerStoreInterface::class),
+            $config->get(Scheduler::class),
             $config->clock(),
             $config->drainOptions(),
         );

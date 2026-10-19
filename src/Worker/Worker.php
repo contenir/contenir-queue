@@ -7,6 +7,7 @@ namespace Contenir\Queue\Worker;
 use Contenir\Queue\Clock\Stopwatch;
 use Contenir\Queue\Exception\StorageException;
 use Contenir\Queue\Job\JobRunner;
+use Contenir\Queue\Schedule\Scheduler;
 use Contenir\Queue\Storage\WorkerStoreInterface;
 use DateTimeImmutable;
 use Psr\Clock\ClockInterface;
@@ -18,7 +19,8 @@ use function min;
 /**
  * Takes the worker lock, then runs due jobs one at a time until a limit is
  * reached or it is stopped. Each turn renews the lock, which is the heartbeat
- * a host checks to know background jobs are running.
+ * a host checks to know background jobs are running, and queues the jobs of
+ * any schedules that have fallen due.
  *
  * Cron runs it every minute with a time limit just under a minute: a run that
  * finds the lock taken stops at once. Under a supervisor it runs with no time
@@ -31,12 +33,13 @@ final class Worker
     private bool $stopping = false;
 
     /**
-     * @mago-expect lint:excessive-parameter-list The worker coordinates these six; its factory builds it.
+     * @mago-expect lint:excessive-parameter-list The worker coordinates these seven; its factory builds it.
      */
     public function __construct(
         private readonly JobRunner $runner,
         private readonly Housekeeping $housekeeping,
         private readonly WorkerStoreInterface $workers,
+        private readonly Scheduler $scheduler,
         private readonly ClockInterface $clock,
         private readonly LoggerInterface $logger,
         private readonly ProcessInterface $process,
@@ -143,6 +146,7 @@ final class Worker
                 return [StopReason::LockLost, $ran];
             }
 
+            $this->scheduler->tick();
             if (null === $this->runner->runNext($options->queues, $identity->lock)) {
                 $this->process->sleep($this->idleWait($options, $stopwatch));
 

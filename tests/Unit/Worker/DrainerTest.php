@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Contenir\Queue\Tests\Unit\Worker;
 
 use Contenir\Queue\Job\JobState;
+use Contenir\Queue\Schedule\Frequency;
+use Contenir\Queue\Schedule\Schedule;
 use Contenir\Queue\Tests\TestAsset\Worker\WorkerKit;
 use Contenir\Queue\Worker\DrainOptions;
 use Contenir\Queue\Worker\Housekeeping;
@@ -72,6 +74,15 @@ final class DrainerTest extends TestCase
         $kit->clock->advance($age);
 
         static::assertSame($expected, $kit->drainer()->drain(WorkerKit::identity()));
+    }
+
+    #[Test]
+    public function queuesDueSchedulesThenRunsThem(): void
+    {
+        $kit = new WorkerKit();
+        $kit->schedules->add(new Schedule('sync', 'test.handler', Frequency::everyMinutes(1)));
+
+        static::assertSame(1, $kit->drainer()->drain(WorkerKit::identity()));
     }
 
     #[Test]

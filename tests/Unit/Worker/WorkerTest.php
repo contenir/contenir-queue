@@ -6,6 +6,8 @@ namespace Contenir\Queue\Tests\Unit\Worker;
 
 use Contenir\Queue\Exception\StorageException;
 use Contenir\Queue\Job\JobState;
+use Contenir\Queue\Schedule\Frequency;
+use Contenir\Queue\Schedule\Schedule;
 use Contenir\Queue\Storage\JobStoreInterface;
 use Contenir\Queue\Tests\TestAsset\Storage\InMemoryJobStore;
 use Contenir\Queue\Tests\TestAsset\Worker\WorkerKit;
@@ -158,6 +160,20 @@ final class WorkerTest extends TestCase
         ), WorkerKit::identity());
 
         static::assertSame(StopReason::MaxJobs, $report->reason);
+    }
+
+    #[Test]
+    public function queuesAndRunsDueSchedulesOnEachTurn(): void
+    {
+        $kit = new WorkerKit();
+        $kit->schedules->add(new Schedule('sync', 'test.handler', Frequency::everyMinutes(1)));
+
+        $report = $kit->worker()->run(new WorkerOptions(
+            maxSeconds: 130,
+            sleepSeconds: 5,
+        ), WorkerKit::identity());
+
+        static::assertSame(3, $report->jobsRun);
     }
 
     #[Test]

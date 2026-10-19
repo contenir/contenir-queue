@@ -19,6 +19,7 @@
     },
     "require": {
         "php": "~8.3.0 || ~8.4.0 || ~8.5.0",
+        "dragonmantank/cron-expression": "^3.4",
         "peptolab/phpdb-migration": "^0.2",
         "php-db/phpdb": "^0.6.0",
         "psr/clock": "^1.0",
@@ -72,7 +73,7 @@
             "@putenv CONTENIR_TEST_DB_PLATFORM=mysql",
             "phpunit --colors=always --testsuite integration"
         ],
-        "test-coverage": "phpunit --colors=always --coverage-clover clover.xml",
+        "test-coverage": "@php -d pcov.directory=. -d pcov.exclude=#/vendor/# vendor/bin/phpunit --colors=always --coverage-clover clover.xml",
         "mutation-test": "infection"
     },
     "config": {

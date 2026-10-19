@@ -32,12 +32,28 @@ final class HousekeepingTest extends TestCase
         $kit->clock->advance(86_400 * 6);
 
         static::assertSame(
-            [1, ['info: Deleted 1 done jobs older than 7 days'], [false, true]],
+            [1, ['info: Deleted 1 done jobs and 0 schedule runs older than 7 days'], [false, true]],
             [
                 $kit->housekeeping->pruneDone(7),
                 $kit->logger->lines,
                 array_map(static fn(int $id): bool => null !== $kit->jobs->find($id), $ids),
             ],
+        );
+    }
+
+    #[Test]
+    public function deletesScheduleRunsOlderThanTheGivenDays(): void
+    {
+        $kit = new WorkerKit();
+        $kit->scheduleStore->start('sync', $kit->clock->now(), $kit->clock->now());
+        $kit->scheduleStore->recordRun('sync', $kit->clock->now(), null, $kit->clock->now());
+        $kit->clock->advance(86_400);
+        $kit->scheduleStore->recordRun('sync', $kit->clock->now(), null, $kit->clock->now());
+        $kit->clock->advance(86_400 * 7);
+
+        static::assertSame(
+            [0, ['info: Deleted 0 done jobs and 1 schedule runs older than 7 days'], 1],
+            [$kit->housekeeping->pruneDone(7), $kit->logger->lines, count($kit->scheduleStore->runs)],
         );
     }
 

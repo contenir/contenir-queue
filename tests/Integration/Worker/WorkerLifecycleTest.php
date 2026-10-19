@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Contenir\Queue\Tests\Integration\Worker;
 
 use Contenir\Queue\Job\Job;
+use Contenir\Queue\Job\JobState;
+use Contenir\Queue\Monitor\QueueMonitor;
 use Contenir\Queue\QueueInterface;
 use Contenir\Queue\Storage\WorkerStoreInterface;
 use Contenir\Queue\Tests\TestAsset\Clock\MutableClock;
@@ -25,6 +27,7 @@ use Psr\Clock\ClockInterface;
 use Psr\Log\LoggerInterface;
 
 use function array_map;
+use function count;
 
 /**
  * The worker and the drain built from ConfigProvider's factories and run
@@ -41,6 +44,51 @@ final class WorkerLifecycleTest extends TestCase
     private FactoryContainer $container;
 
     private CallbackHandler $handler;
+
+    #[Test]
+    public function aConfiguredScheduleRunsAndTheMonitorReportsIt(): void
+    {
+        $container = new FactoryContainer([
+            AdapterInterface::class => $this->adapter,
+            ClockInterface::class   => $this->clock,
+            'sync'                  => $this->handler,
+        ], ['schedules' => ['contacts' => ['job' => 'sync', 'every_minutes' => 15, 'payload' => ['all' => true]]]]);
+        $worker  = $container->get(Worker::class);
+        $monitor = $container->get(QueueMonitor::class);
+        self::assertInstanceOf(Worker::class, $worker);
+        self::assertInstanceOf(QueueMonitor::class, $monitor);
+
+        $worker->run(new WorkerOptions(maxJobs: 1), WorkerIdentity::of('web1', 7, 'a'));
+        $schedule = $monitor->schedules()[0];
+        $health   = $monitor->health();
+
+        static::assertSame(
+            [
+                [['all' => true]],
+                ['contacts', 'every 15 minutes', '09:00:00', '09:15:00', JobState::Done],
+                [0, false, 0, null, 0],
+                [1, 0],
+            ],
+            [
+                array_map(static fn(Job $job): array => $job->payload(), $this->handler->handled),
+                [
+                    $schedule->name,
+                    $schedule->frequency,
+                    $schedule->lastRunAt?->format('H:i:s'),
+                    $schedule->nextRunAt?->format('H:i:s'),
+                    $schedule->lastJobState,
+                ],
+                [
+                    $health->heartbeatAge,
+                    $health->workerRunning,
+                    $health->waiting,
+                    $health->oldestWaitingAge,
+                    $health->failed,
+                ],
+                [$monitor->counts()->done, count($monitor->runs('contacts')) - 1],
+            ],
+        );
+    }
 
     #[Test]
     public function aSecondWorkerWaitsForTheFirst(): void
