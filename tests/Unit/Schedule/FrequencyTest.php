@@ -13,7 +13,6 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
-use RuntimeException;
 
 #[Group('unit')]
 final class FrequencyTest extends TestCase
@@ -108,7 +107,7 @@ final class FrequencyTest extends TestCase
     public function cronRefusesAnythingElse(): void
     {
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage('"every day" is not a cron expression');
+        $this->expectExceptionMessage('"every day" is not a cron expression: it needs five fields');
 
         Frequency::cron('every day');
     }
@@ -124,15 +123,10 @@ final class FrequencyTest extends TestCase
     #[Test]
     public function cronThatNeverMatchesIsReported(): void
     {
-        try {
-            Frequency::cron('0 0 30 2 *')->first(self::at('09:00:00'));
-            static::fail('No exception');
-        } catch (ScheduleException $e) {
-            static::assertSame(
-                ['The cron expression "0 0 30 2 *" never falls due', RuntimeException::class],
-                [$e->getMessage(), $e->getPrevious()::class],
-            );
-        }
+        $this->expectException(ScheduleException::class);
+        $this->expectExceptionMessage('The cron expression "0 0 30 2 *" never falls due');
+
+        Frequency::cron('0 0 30 2 *')->first(self::at('09:00:00'));
     }
 
     #[Test]

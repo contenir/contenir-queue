@@ -19,7 +19,6 @@
     },
     "require": {
         "php": "~8.3.0 || ~8.4.0 || ~8.5.0",
-        "dragonmantank/cron-expression": "^3.4",
         "peptolab/phpdb-migration": "^0.2",
         "php-db/phpdb": "^0.6.0",
         "psr/clock": "^1.0",

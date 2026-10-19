@@ -12,7 +12,6 @@ use Psr\Container\ContainerExceptionInterface;
 use Psr\Container\ContainerInterface;
 use Psr\Log\LoggerInterface;
 use Throwable;
-use UnexpectedValueException;
 
 use function mb_substr;
 use function min;
@@ -124,16 +123,24 @@ final readonly class JobRunner
     }
 
     /**
+     * The job's handler. A handler that is missing (its add-on was disabled,
+     * say) or of the wrong type fails the job at once; an error while the
+     * container builds it is an ordinary failure, since it may pass.
+     *
      * @throws ContainerExceptionInterface
-     * @throws UnexpectedValueException
+     * @throws UnrecoverableJobException
      *
      * @mago-expect analysis:mixed-assignment Container services are untyped; the type is checked here.
      */
     private function handler(Job $job): JobHandlerInterface
     {
+        if (! $this->handlers->has($job->jobClass)) {
+            throw new UnrecoverableJobException("The container has no handler \"{$job->jobClass}\"");
+        }
+
         $handler = $this->handlers->get($job->jobClass);
         if (! $handler instanceof JobHandlerInterface) {
-            throw new UnexpectedValueException(sprintf(
+            throw new UnrecoverableJobException(sprintf(
                 'The container entry "%s" is not a %s',
                 $job->jobClass,
                 JobHandlerInterface::class,

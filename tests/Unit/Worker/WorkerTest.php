@@ -26,17 +26,16 @@ use function gethostname;
 final class WorkerTest extends TestCase
 {
     #[Test]
-    public function aDaemonRunsUntilStopped(): void
+    public function aDaemonWaitsForWorkUntilStopped(): void
     {
         $sleeps = 0;
-        $kit    = new WorkerKit(onSleep: static function (WorkerKit $kit) use (&$sleeps, &$worker): void {
+        $kit    = new WorkerKit(onSleep: static function (WorkerKit $kit) use (&$sleeps): void {
             if (++$sleeps === 3) {
-                $worker->stop();
+                $kit->worker()->stop();
             }
         });
-        $worker = $kit->worker();
 
-        $report = $worker->run(new WorkerOptions(
+        $report = $kit->worker()->run(new WorkerOptions(
             maxSeconds: 0,
             sleepSeconds: 30,
         ), WorkerKit::identity());
@@ -72,6 +71,27 @@ final class WorkerTest extends TestCase
     }
 
     #[Test]
+    public function aRunWithATimeLimitRunsTheSchedulesDueWhenItStarts(): void
+    {
+        $kit = new WorkerKit();
+        $kit->schedules->add(new Schedule('sync', 'test.handler', Frequency::everyMinutes(1)));
+
+        $report = $kit->worker()->run(new WorkerOptions(maxSeconds: 50), WorkerKit::identity());
+
+        static::assertSame([StopReason::QueueEmpty, 1], [$report->reason, $report->jobsRun]);
+    }
+
+    #[Test]
+    public function aRunWithATimeLimitStopsAtOnceWhenNothingIsDue(): void
+    {
+        $kit = new WorkerKit();
+
+        $report = $kit->worker()->run(new WorkerOptions(maxSeconds: 50), WorkerKit::identity());
+
+        static::assertSame([StopReason::QueueEmpty, []], [$report->reason, $kit->process->sleeps]);
+    }
+
+    #[Test]
     public function doesNotStartWhileAnotherWorkerHoldsTheLock(): void
     {
         $kit = new WorkerKit();
@@ -101,27 +121,15 @@ final class WorkerTest extends TestCase
     }
 
     #[Test]
-    public function keepsLookingForWorkUntilTheTimeLimit(): void
-    {
-        $kit = new WorkerKit();
-
-        $kit->worker()->run(new WorkerOptions(
-            maxSeconds: 12,
-            sleepSeconds: 5,
-        ), WorkerKit::identity());
-
-        static::assertSame([5, 5, 2], $kit->process->sleeps);
-    }
-
-    #[Test]
     public function locksForTheConfiguredTime(): void
     {
         $kit = new WorkerKit(onSleep: static function (WorkerKit $kit) use (&$until): void {
             $until = $kit->workers->find('default')?->lockedUntil?->format('H:i:s');
+            $kit->worker()->stop();
         });
 
         $kit->worker()->run(new WorkerOptions(
-            maxSeconds: 5,
+            maxSeconds: 0,
             sleepSeconds: 5,
             lockSeconds: 90,
         ), WorkerKit::identity());
@@ -165,15 +173,19 @@ final class WorkerTest extends TestCase
     #[Test]
     public function queuesAndRunsDueSchedulesOnEachTurn(): void
     {
-        $kit = new WorkerKit();
+        $kit = new WorkerKit(onSleep: static function (WorkerKit $kit): void {
+            if ($kit->clock->now()->format('H:i:s') === '09:02:00') {
+                $kit->worker()->stop();
+            }
+        });
         $kit->schedules->add(new Schedule('sync', 'test.handler', Frequency::everyMinutes(1)));
 
         $report = $kit->worker()->run(new WorkerOptions(
-            maxSeconds: 130,
-            sleepSeconds: 5,
+            maxSeconds: 0,
+            sleepSeconds: 30,
         ), WorkerKit::identity());
 
-        static::assertSame(3, $report->jobsRun);
+        static::assertSame(2, $report->jobsRun);
     }
 
     #[Test]
@@ -263,7 +275,7 @@ final class WorkerTest extends TestCase
     }
 
     #[Test]
-    public function runsDueJobsUntilTheTimeLimit(): void
+    public function runsDueJobsThenStopsWhenNothingIsDue(): void
     {
         $kit = new WorkerKit(secondsPerJob: 10);
         $ids = $kit->push(3);
@@ -271,8 +283,16 @@ final class WorkerTest extends TestCase
         $report = $kit->worker()->run(new WorkerOptions(maxSeconds: 50), WorkerKit::identity());
 
         static::assertEquals(
-            [new WorkerReport(StopReason::TimeUp, jobsRun: 3), [JobState::Done, JobState::Done, JobState::Done]],
-            [$report, array_map(static fn(int $id): ?JobState => $kit->jobs->find($id)?->state, $ids)],
+            [
+                new WorkerReport(StopReason::QueueEmpty, jobsRun: 3),
+                [JobState::Done, JobState::Done, JobState::Done],
+                [],
+            ],
+            [
+                $report,
+                array_map(static fn(int $id): ?JobState => $kit->jobs->find($id)?->state, $ids),
+                $kit->process->sleeps,
+            ],
         );
     }
 
@@ -299,13 +319,24 @@ final class WorkerTest extends TestCase
     }
 
     #[Test]
+    public function stopsTakingJobsAtTheTimeLimit(): void
+    {
+        $kit = new WorkerKit(secondsPerJob: 25);
+        $kit->push(3);
+
+        $report = $kit->worker()->run(new WorkerOptions(maxSeconds: 50), WorkerKit::identity());
+
+        static::assertEquals(new WorkerReport(StopReason::TimeUp, jobsRun: 2), $report);
+    }
+
+    #[Test]
     public function stopsWhenAnotherWorkerTakesTheLock(): void
     {
         $kit = new WorkerKit(onSleep: static function (WorkerKit $kit): void {
             $kit->workers->hijack('default', 'other-lock', $kit->clock->now()->modify('+5 minutes'));
         });
 
-        $report = $kit->worker()->run(new WorkerOptions(maxSeconds: 50), WorkerKit::identity());
+        $report = $kit->worker()->run(new WorkerOptions(maxSeconds: 0), WorkerKit::identity());
 
         static::assertSame(
             [StopReason::LockLost, 'warning: Worker default lost its lock to another worker', 'other-lock'],
@@ -336,30 +367,17 @@ final class WorkerTest extends TestCase
     {
         $kit = new WorkerKit(onSleep: static function (WorkerKit $kit) use (&$status): void {
             $status = $kit->workers->find('nightly');
+            $kit->worker()->stop();
         });
 
         $kit->worker()->run(new WorkerOptions(
             name: 'nightly',
-            maxSeconds: 1,
+            maxSeconds: 0,
         ), WorkerKit::identity());
 
         static::assertSame(
             ['web1:4321:abcd1234', 'web1', 4321, '09:00:00'],
             [$status?->owner, $status?->host, $status?->pid, $status?->startedAt?->format('H:i:s')],
         );
-    }
-
-    #[Test]
-    public function waitsAtLeastASecondNearTheTimeLimit(): void
-    {
-        $kit = new WorkerKit(secondsPerJob: 49.5);
-        $kit->push();
-
-        $kit->worker()->run(new WorkerOptions(
-            maxSeconds: 50,
-            sleepSeconds: 5,
-        ), WorkerKit::identity());
-
-        static::assertSame([1], $kit->process->sleeps);
     }
 }

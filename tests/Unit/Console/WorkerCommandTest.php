@@ -92,11 +92,12 @@ final class WorkerCommandTest extends TestCase
     #[Test]
     public function maxTimeSetsTheTimeLimit(): void
     {
-        $kit = new WorkerKit();
+        $kit = new WorkerKit(secondsPerJob: 4);
+        $kit->push(3);
 
-        $this->command($kit, new WorkerOptions())->run(['--max-time=7', '--sleep=5']);
+        $this->command($kit, new WorkerOptions())->run(['--max-time=7']);
 
-        static::assertSame([5, 2], $kit->process->sleeps);
+        static::assertStringStartsWith('Worker default stopped (time up): 2 jobs run', $this->output);
     }
 
     #[Test]

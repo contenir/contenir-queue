@@ -14,6 +14,9 @@ enum StopReason: string
     /** Another worker holds the lock, so this one never started. */
     case AlreadyRunning = 'already running';
 
+    /** Nothing was due, on a run with a time limit. */
+    case QueueEmpty = 'queue empty';
+
     /** The time limit was reached. */
     case TimeUp = 'time up';
 

@@ -28,7 +28,10 @@ use Contenir\Queue\Worker\WorkerIdentity;
 /**
  * A worker, a drainer and everything they work on, in memory: the jobs, the
  * worker rows, a clock that moves only when told, and a handler that takes a
- * set number of seconds per job.
+ * set number of seconds per job. worker() returns the same worker each time,
+ * so a sleep callback can stop it.
+ *
+ * @mago-expect lint:too-many-properties One property per collaborator a test inspects.
  */
 final class WorkerKit
 {
@@ -51,6 +54,8 @@ final class WorkerKit
     public readonly InMemoryScheduleStore $scheduleStore;
 
     public readonly Scheduler $scheduler;
+
+    private ?Worker $worker = null;
 
     /**
      * @param ?Closure(WorkerKit): void $onSleep
@@ -130,7 +135,7 @@ final class WorkerKit
 
     public function worker(): Worker
     {
-        return new Worker(
+        return $this->worker ??= new Worker(
             $this->runner,
             $this->housekeeping,
             $this->workers,

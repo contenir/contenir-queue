@@ -15,18 +15,19 @@ adheres to [Semantic Versioning](https://semver.org/).
 - `JobHandlerInterface` for handlers, resolved from a PSR-11 container by the job's class.
 - `JobRunner`, which runs a claimed job and records the result. Failures retry with `Backoff` (1 minute doubling to
   24 hours, then failed). `RetryLaterException` sets the next attempt, including from an HTTP `Retry-After`, and
-  `UnrecoverableJobException` fails a job at once.
+  `UnrecoverableJobException` fails a job at once, as does a handler missing from the container.
 - `PhpDbJobStore`, which claims jobs atomically so several workers and web requests can share the table, and only
   finishes a job while it still holds the lock it was claimed with.
 - `bin/contenir-queue`, the worker cron runs every minute. It takes a lock in a `queue_worker` table so only one runs,
-  renews it as a heartbeat, works for up to 50 seconds (configurable) and exits. `--daemon` runs it until SIGTERM,
-  its memory limit or a job limit, for a process supervisor.
+  renews it as a heartbeat, and runs due jobs until nothing is due or 50 seconds (configurable) have passed.
+  `--daemon` runs it with no time limit, waiting for work, until SIGTERM, its memory limit or a job limit, for a
+  process supervisor.
 - `Worker`, which the command runs. Before taking jobs it retries jobs whose worker died mid-run (locked for over an
   hour) and deletes done jobs older than seven days.
 - `Drainer::drain()`, for a host to call after the response has been sent: it runs up to three due jobs within two
   seconds, unless the worker's heartbeat is under two minutes old.
-- Schedules: `Schedule` with a `Frequency` (`everyMinutes()`, or `cron()` in a time zone, using
-  dragonmantank/cron-expression), added to the `Schedules` service or configured under `contenir_queue.schedules`.
+- Schedules: `Schedule` with a `Frequency` (`everyMinutes()`, or `cron()` in a time zone, read by the package's own
+  standard five-field cron parser), added to the `Schedules` service or configured under `contenir_queue.schedules`.
   `Scheduler::tick()`, run by the worker on every turn and by the drain, pushes the job of each schedule that has
   fallen due. A run whose last job is still waiting or running is skipped. Each run is recorded in
   `queue_schedule_run`, and the schedule's state is kept in `queue_schedule`.

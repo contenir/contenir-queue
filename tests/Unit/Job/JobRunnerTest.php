@@ -14,6 +14,8 @@ use Contenir\Queue\Job\UnrecoverableJobException;
 use Contenir\Queue\Storage\JobStoreInterface;
 use Contenir\Queue\Tests\TestAsset\Clock\MutableClock;
 use Contenir\Queue\Tests\TestAsset\Container\ArrayContainer;
+use Contenir\Queue\Tests\TestAsset\Container\BrokenContainer;
+use Contenir\Queue\Tests\TestAsset\Container\ContainerException;
 use Contenir\Queue\Tests\TestAsset\Job\CallbackHandler;
 use Contenir\Queue\Tests\TestAsset\Job\JobFactory;
 use Contenir\Queue\Tests\TestAsset\Log\RecordingLogger;
@@ -48,6 +50,68 @@ final class JobRunnerTest extends TestCase
         return new CallbackHandler(static function (Job $job) use ($e): void {
             throw $e;
         });
+    }
+
+    #[Test]
+    public function aHandlerTheContainerCannotBuildIsAnOrdinaryFailure(): void
+    {
+        $job = JobFactory::running(attempts: 1);
+        $this->store
+            ->expects(self::once())
+            ->method('retry')
+            ->with(
+                $job,
+                self::at('2026-10-19 09:01:00'),
+                ContainerException::class . ': Could not build "test.handler"',
+            )
+            ->willReturn(true);
+
+        $outcome = (new JobRunner(new BrokenContainer(), $this->store, new Backoff(), $this->clock, $this->logger))
+            ->run($job);
+
+        static::assertSame(JobOutcome::Retrying, $outcome);
+    }
+
+    #[Test]
+    public function aMissingHandlerFailsTheJobAtOnce(): void
+    {
+        $job = JobFactory::running(attempts: 1);
+        $this->store
+            ->expects(self::once())
+            ->method('fail')
+            ->with($job, UnrecoverableJobException::class . ': The container has no handler "test.handler"')
+            ->willReturn(true);
+        $this->store->expects(self::never())->method('retry');
+
+        $outcome = (new JobRunner(new ArrayContainer(), $this->store, new Backoff(), $this->clock, $this->logger))
+            ->run($job);
+
+        static::assertSame(JobOutcome::Failed, $outcome);
+    }
+
+    #[Test]
+    public function anEntryThatIsNotAHandlerFailsTheJobAtOnce(): void
+    {
+        $job = JobFactory::running(attempts: 1);
+        $this->store
+            ->expects(self::once())
+            ->method('fail')
+            ->with(
+                $job,
+                UnrecoverableJobException::class
+                    . ': The container entry "test.handler" is not a '
+                    . JobHandlerInterface::class,
+            )
+            ->willReturn(true);
+        $this->store->expects(self::never())->method('retry');
+
+        (new JobRunner(
+            new ArrayContainer([JobFactory::HANDLER => new stdClass()]),
+            $this->store,
+            new Backoff(),
+            $this->clock,
+            $this->logger,
+        ))->run($job);
     }
 
     #[Test]
@@ -87,29 +151,6 @@ final class JobRunnerTest extends TestCase
             [JobOutcome::Lost, ['warning: Job 42 (test.handler) was no longer locked by this worker when it finished']],
             [$outcome, $this->logger->lines],
         );
-    }
-
-    #[Test]
-    public function entryThatIsNotAHandlerIsAnOrdinaryFailure(): void
-    {
-        $job = JobFactory::running(attempts: 1);
-        $this->store
-            ->expects(self::once())
-            ->method('retry')
-            ->with(
-                $job,
-                static::anything(),
-                'UnexpectedValueException: The container entry "test.handler" is not a ' . JobHandlerInterface::class,
-            )
-            ->willReturn(true);
-
-        (new JobRunner(
-            new ArrayContainer([JobFactory::HANDLER => new stdClass()]),
-            $this->store,
-            new Backoff(),
-            $this->clock,
-            $this->logger,
-        ))->run($job);
     }
 
     #[Test]
@@ -176,22 +217,6 @@ final class JobRunnerTest extends TestCase
             ->willReturn(true);
 
         $this->runner(self::throwing(new LogicException(str_repeat('é', JobRunner::MAX_ERROR_LENGTH))))->run($job);
-    }
-
-    #[Test]
-    public function missingHandlerIsAnOrdinaryFailure(): void
-    {
-        $job = JobFactory::running(attempts: 1);
-        $this->store
-            ->expects(self::once())
-            ->method('retry')
-            ->with($job, self::at('2026-10-19 09:01:00'), static::stringContains('No entry "test.handler"'))
-            ->willReturn(true);
-
-        $outcome = (new JobRunner(new ArrayContainer(), $this->store, new Backoff(), $this->clock, $this->logger))
-            ->run($job);
-
-        static::assertSame(JobOutcome::Retrying, $outcome);
     }
 
     #[Test]

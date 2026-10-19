@@ -34,15 +34,16 @@ final readonly class WorkerCommand
     public const string HELP = <<<'TXT'
         Usage: contenir-queue [options]
 
-        Runs due jobs. Cron runs it every minute; it stops after max-time seconds.
+        Runs due jobs. Cron runs it every minute; it stops when nothing is due, or
+        after max-time seconds.
 
           --container=FILE    PHP file returning the PSR-11 container
                               (default: $CONTENIR_QUEUE_CONTAINER, else config/container.php)
           --queue=NAME[,NAME] Only take jobs from these queues (default: all)
           --max-time=SECONDS  Stop taking jobs after this long (default: 50)
-          --daemon            Run until stopped, for a process supervisor
+          --daemon            Run until stopped, waiting for work, for a process supervisor
           --max-jobs=N        Stop after N jobs
-          --sleep=SECONDS     Wait this long when there is nothing to do (default: 5)
+          --sleep=SECONDS     With --daemon, wait this long when nothing is due (default: 5)
           --memory-limit=MB   Stop once the process uses this much memory (default: 128)
           --name=NAME         Worker name, for its lock and heartbeat (default: default)
           --help              Show this help
