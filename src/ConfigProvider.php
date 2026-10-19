@@ -8,14 +8,24 @@ use Contenir\Queue\Container\DrainerFactory;
 use Contenir\Queue\Container\HousekeepingFactory;
 use Contenir\Queue\Container\JobRunnerFactory;
 use Contenir\Queue\Container\PhpDbJobStoreFactory;
+use Contenir\Queue\Container\PhpDbScheduleStoreFactory;
 use Contenir\Queue\Container\PhpDbWorkerStoreFactory;
 use Contenir\Queue\Container\QueueConfig;
 use Contenir\Queue\Container\QueueFactory;
+use Contenir\Queue\Container\QueueMonitorFactory;
+use Contenir\Queue\Container\SchedulerFactory;
+use Contenir\Queue\Container\SchedulesFactory;
 use Contenir\Queue\Container\WorkerFactory;
 use Contenir\Queue\Job\JobRunner;
+use Contenir\Queue\Monitor\QueueMonitor;
+use Contenir\Queue\Schedule\Scheduler;
+use Contenir\Queue\Schedule\Schedules;
+use Contenir\Queue\Storage\JobBrowserInterface;
 use Contenir\Queue\Storage\JobStoreInterface;
 use Contenir\Queue\Storage\PhpDbJobStore;
+use Contenir\Queue\Storage\PhpDbScheduleStore;
 use Contenir\Queue\Storage\PhpDbWorkerStore;
+use Contenir\Queue\Storage\ScheduleStoreInterface;
 use Contenir\Queue\Storage\WorkerStoreInterface;
 use Contenir\Queue\Worker\Drainer;
 use Contenir\Queue\Worker\Housekeeping;
@@ -47,6 +57,11 @@ use function dirname;
  *   `prune_after_days` (7, 0 keeps done jobs). See {@see Worker\WorkerOptions}.
  * - `drain`: `max_jobs` (3), `max_seconds` (2) and
  *   `skip_when_heartbeat_within` (120). See {@see Worker\DrainOptions}.
+ * - `schedules`: recurring jobs by name, each with `job` and `every_minutes`
+ *   or `cron`, and optionally `timezone`, `payload` and `queue`. Hosts add
+ *   more to the {@see Schedule\Schedules} service.
+ * - `timezone`: the zone cron schedules are read in when they name none;
+ *   PHP's default if empty.
  *
  * The queue's tables are created by the migrations in `schema/`, listed under
  * `contenir.schema_migrations` for the host's migration runner.
@@ -73,18 +88,24 @@ final class ConfigProvider
     {
         return [
             'aliases'   => [
-                QueueInterface::class       => Queue::class,
-                JobStoreInterface::class    => PhpDbJobStore::class,
-                WorkerStoreInterface::class => PhpDbWorkerStore::class,
+                QueueInterface::class         => Queue::class,
+                JobBrowserInterface::class    => PhpDbJobStore::class,
+                JobStoreInterface::class      => PhpDbJobStore::class,
+                ScheduleStoreInterface::class => PhpDbScheduleStore::class,
+                WorkerStoreInterface::class   => PhpDbWorkerStore::class,
             ],
             'factories' => [
-                Drainer::class          => DrainerFactory::class,
-                Housekeeping::class     => HousekeepingFactory::class,
-                JobRunner::class        => JobRunnerFactory::class,
-                PhpDbJobStore::class    => PhpDbJobStoreFactory::class,
-                PhpDbWorkerStore::class => PhpDbWorkerStoreFactory::class,
-                Queue::class            => QueueFactory::class,
-                Worker::class           => WorkerFactory::class,
+                Drainer::class            => DrainerFactory::class,
+                Housekeeping::class       => HousekeepingFactory::class,
+                JobRunner::class          => JobRunnerFactory::class,
+                PhpDbJobStore::class      => PhpDbJobStoreFactory::class,
+                PhpDbScheduleStore::class => PhpDbScheduleStoreFactory::class,
+                PhpDbWorkerStore::class   => PhpDbWorkerStoreFactory::class,
+                Queue::class              => QueueFactory::class,
+                QueueMonitor::class       => QueueMonitorFactory::class,
+                Scheduler::class          => SchedulerFactory::class,
+                Schedules::class          => SchedulesFactory::class,
+                Worker::class             => WorkerFactory::class,
             ],
         ];
     }

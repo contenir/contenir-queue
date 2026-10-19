@@ -7,6 +7,7 @@ namespace Contenir\Queue\Worker;
 use Contenir\Queue\Clock\Stopwatch;
 use Contenir\Queue\Exception\StorageException;
 use Contenir\Queue\Job\JobRunner;
+use Contenir\Queue\Schedule\Scheduler;
 use Contenir\Queue\Storage\WorkerStoreInterface;
 use Psr\Clock\ClockInterface;
 
@@ -21,16 +22,21 @@ use Psr\Clock\ClockInterface;
  *     }
  *     $container->get(Drainer::class)->drain();
  *
- * It does nothing while the worker's heartbeat is fresh.
+ * It queues due schedules' jobs as the worker would, and does nothing while
+ * the worker's heartbeat is fresh.
  *
  * @api
  */
 final readonly class Drainer
 {
+    /**
+     * @mago-expect lint:excessive-parameter-list The drain coordinates these six; its factory builds it.
+     */
     public function __construct(
         private JobRunner $runner,
         private Housekeeping $housekeeping,
         private WorkerStoreInterface $workers,
+        private Scheduler $scheduler,
         private ClockInterface $clock,
         private DrainOptions $options,
     ) {}
@@ -50,6 +56,7 @@ final readonly class Drainer
 
         $identity ??= WorkerIdentity::current();
         $this->housekeeping->recoverStale($this->options->staleAfterSeconds);
+        $this->scheduler->tick();
 
         $ran = 0;
         while ($ran < $this->options->maxJobs && $stopwatch->elapsed() < $this->options->maxSeconds) {

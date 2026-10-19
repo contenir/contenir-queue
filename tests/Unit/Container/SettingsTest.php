@@ -11,6 +11,9 @@ use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 
+use function array_keys;
+use function array_map;
+
 #[Group('unit')]
 final class SettingsTest extends TestCase
 {
@@ -47,6 +50,14 @@ final class SettingsTest extends TestCase
             'strings holding a number' => [
                 static fn(Settings $s): mixed => $s->strings('mixed'),
                 'The setting "q.mixed" must be a list of strings',
+            ],
+            'array from text'          => [
+                static fn(Settings $s): mixed => $s->array('text'),
+                'The setting "q.text" must be an array',
+            ],
+            'map of text'              => [
+                static fn(Settings $s): mixed => $s->map('list'),
+                'The setting "q.list.0" must be an array',
             ],
             'nested path'              => [
                 static fn(Settings $s): mixed => $s->section('inner')->int('x', 0),
@@ -86,9 +97,46 @@ final class SettingsTest extends TestCase
     }
 
     #[Test]
+    public function aNumericMapKeyIsAName(): void
+    {
+        static::assertSame(
+            ['5'],
+            array_map(strval(...), array_keys((new Settings(['m' => [5 => []]], 'q'))->map('m'))),
+        );
+    }
+
+    #[Test]
+    public function hasIsTrueForAnyValueButNull(): void
+    {
+        $settings = new Settings(['zero' => 0, 'empty' => '', 'null' => null], 'q');
+
+        static::assertSame(
+            [true, true, false, false],
+            [$settings->has('zero'), $settings->has('empty'), $settings->has('null'), $settings->has('none')],
+        );
+    }
+
+    #[Test]
     public function nullCountsAsAbsent(): void
     {
         static::assertSame(4, (new Settings(['n' => null], 'q'))->int('n', 4));
+    }
+
+    #[Test]
+    public function readsArraysAndMaps(): void
+    {
+        $settings = new Settings(['a' => [1, 'x' => 2], 'm' => ['one' => ['v' => 1], 'two' => []]], 'q');
+
+        static::assertSame(
+            [[1, 'x' => 2], [], ['one', 'two'], 1, 'q.m.two.v'],
+            [
+                $settings->array('a'),
+                $settings->array('none'),
+                array_keys($settings->map('m')),
+                $settings->map('m')['one']->int('v', 0),
+                $settings->map('m')['two']->path('v'),
+            ],
+        );
     }
 
     #[Test]
@@ -120,5 +168,31 @@ final class SettingsTest extends TestCase
         $this->expectExceptionMessage($message);
 
         $read(self::settings());
+    }
+
+    #[Test]
+    public function requiredIntMustBeGivenAsAnInteger(): void
+    {
+        $settings = new Settings(['n' => 3, 'text' => '3', 'null' => null], 'q');
+        $failures = [];
+        foreach (['text', 'null', 'none'] as $key) {
+            try {
+                $settings->requiredInt($key);
+            } catch (ConfigurationException $e) {
+                $failures[] = $e->getMessage();
+            }
+        }
+
+        static::assertSame(
+            [
+                3,
+                [
+                    'The setting "q.text" must be an integer',
+                    'The setting "q.null" must be given',
+                    'The setting "q.none" must be given',
+                ],
+            ],
+            [$settings->requiredInt('n'), $failures],
+        );
     }
 }

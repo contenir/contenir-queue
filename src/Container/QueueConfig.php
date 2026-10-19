@@ -7,8 +7,14 @@ namespace Contenir\Queue\Container;
 use Contenir\Queue\Clock\SystemClock;
 use Contenir\Queue\Exception\ConfigurationException;
 use Contenir\Queue\Job\Backoff;
+use Contenir\Queue\QueueInterface;
+use Contenir\Queue\Schedule\Frequency;
+use Contenir\Queue\Schedule\Schedule;
+use Contenir\Queue\Schedule\Schedules;
 use Contenir\Queue\Worker\DrainOptions;
 use Contenir\Queue\Worker\WorkerOptions;
+use DateTimeZone;
+use Exception;
 use PhpDb\Adapter\AdapterInterface;
 use Psr\Clock\ClockInterface;
 use Psr\Container\ContainerExceptionInterface;
@@ -16,6 +22,7 @@ use Psr\Container\ContainerInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 
+use function date_default_timezone_get;
 use function is_array;
 
 /**
@@ -49,6 +56,20 @@ final readonly class QueueConfig
         $queue  = is_array($config) ? $config[self::KEY] ?? [] : [];
 
         return new self($container, new Settings(is_array($queue) ? $queue : [], self::KEY));
+    }
+
+    /**
+     * @throws ConfigurationException
+     */
+    private static function zone(Settings $settings, string $key, string $default): DateTimeZone
+    {
+        $name = $settings->string($key, $default);
+
+        try {
+            return new DateTimeZone($name);
+        } catch (Exception) {
+            throw ConfigurationException::invalidSetting($settings->path($key), "a time zone, not \"{$name}\"");
+        }
     }
 
     /**
@@ -157,6 +178,40 @@ final readonly class QueueConfig
     }
 
     /**
+     * The schedules under `schedules`, by name. Each has a `job` (the handler's
+     * container name) and either `cron` or `every_minutes`, with optional
+     * `timezone` (for cron), `payload` and `queue`.
+     *
+     * @throws ConfigurationException
+     */
+    public function schedules(): Schedules
+    {
+        $schedules = new Schedules();
+        foreach ($this->settings->map('schedules') as $name => $schedule) {
+            $schedules->add(new Schedule(
+                (string) $name,
+                $schedule->string('job', ''),
+                $this->frequency($schedule),
+                $schedule->array('payload'),
+                $schedule->string('queue', QueueInterface::DEFAULT_QUEUE),
+            ));
+        }
+
+        return $schedules;
+    }
+
+    /**
+     * The time zone cron schedules are read in when they name none: the
+     * `timezone` setting, else PHP's default.
+     *
+     * @throws ConfigurationException
+     */
+    public function timezone(): DateTimeZone
+    {
+        return self::zone($this->settings, 'timezone', date_default_timezone_get());
+    }
+
+    /**
      * @throws ConfigurationException
      */
     public function workerOptions(): WorkerOptions
@@ -174,6 +229,21 @@ final readonly class QueueConfig
             staleAfterSeconds: $worker->int('stale_after_seconds', 3600),
             pruneAfterDays: $worker->int('prune_after_days', 7),
         );
+    }
+
+    /**
+     * @throws ConfigurationException
+     */
+    private function frequency(Settings $schedule): Frequency
+    {
+        if ($schedule->has('cron')) {
+            return Frequency::cron(
+                $schedule->string('cron', ''),
+                $schedule->has('timezone') ? self::zone($schedule, 'timezone', '') : $this->timezone(),
+            );
+        }
+
+        return Frequency::everyMinutes($schedule->requiredInt('every_minutes'));
     }
 
     /**

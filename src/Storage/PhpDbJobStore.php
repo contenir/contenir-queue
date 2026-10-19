@@ -14,13 +14,14 @@ use PhpDb\Sql\Expression;
 use PhpDb\Sql\Where;
 
 /**
- * Jobs in the `queue_job` table, through php-db, on MySQL or SQLite.
+ * Jobs in the `queue_job` table, through php-db, on MySQL or SQLite, for the
+ * worker and for screens.
  *
  * @api
  *
- * @mago-expect lint:too-many-methods One method per JobStoreInterface operation, plus the update and hydration they share.
+ * @mago-expect lint:too-many-methods One method per operation of its two interfaces, plus the update and hydration they share.
  */
-final readonly class PhpDbJobStore implements JobStoreInterface
+final readonly class PhpDbJobStore implements JobStoreInterface, JobBrowserInterface
 {
     public const string TABLE = 'queue_job';
 
@@ -113,6 +114,37 @@ final readonly class PhpDbJobStore implements JobStoreInterface
     }
 
     #[Override]
+    public function countByState(): array
+    {
+        $select = $this->db
+            ->sql
+            ->select(self::TABLE)
+            ->columns(['state', 'jobs' => new Expression('COUNT(*)')])
+            ->group('state');
+
+        $counts = ['waiting' => 0, 'running' => 0, 'done' => 0, 'failed' => 0];
+        foreach ($this->db->rows($select) as $row) {
+            $counts[JobState::from($row->string('state'))->value] = $row->int('jobs');
+        }
+
+        return $counts;
+    }
+
+    #[Override]
+    public function delete(int $id): bool
+    {
+        $delete = $this->db
+            ->sql
+            ->delete(self::TABLE)
+            ->where(static function (Where $where) use ($id): void {
+                $where->equalTo('id', $id);
+                $where->notEqualTo('state', JobState::Running->value);
+            });
+
+        return 1 === $this->db->affectedRows($delete);
+    }
+
+    #[Override]
     public function fail(Job $job, string $error, DateTimeImmutable $now): bool
     {
         return $this->finish(
@@ -135,6 +167,29 @@ final readonly class PhpDbJobStore implements JobStoreInterface
     }
 
     #[Override]
+    public function findByState(JobState $state, int $limit, int $offset): array
+    {
+        $select = $this->db
+            ->sql
+            ->select(self::TABLE)
+            ->where(['state' => $state->value])
+            ->order(match ($state) {
+                JobState::Waiting => ['next_attempt_at ASC', 'id ASC'],
+                JobState::Running => ['locked_at ASC', 'id ASC'],
+                default           => ['finished_at DESC', 'id DESC'],
+            })
+            ->limit($limit)
+            ->offset($offset);
+
+        $jobs = [];
+        foreach ($this->db->rows($select) as $row) {
+            $jobs[] = self::hydrate($row);
+        }
+
+        return $jobs;
+    }
+
+    #[Override]
     public function findStale(DateTimeImmutable $lockedBefore, int $limit): array
     {
         $before = DbTime::format($lockedBefore);
@@ -154,6 +209,18 @@ final readonly class PhpDbJobStore implements JobStoreInterface
         }
 
         return $jobs;
+    }
+
+    #[Override]
+    public function oldestWaitingSince(): ?DateTimeImmutable
+    {
+        $select = $this->db
+            ->sql
+            ->select(self::TABLE)
+            ->columns(['oldest' => new Expression('MIN(created_at)')])
+            ->where(['state' => JobState::Waiting->value]);
+
+        return $this->db->row($select)?->nullableTime('oldest');
     }
 
     #[Override]
@@ -209,6 +276,25 @@ final readonly class PhpDbJobStore implements JobStoreInterface
             ],
             $now,
         );
+    }
+
+    #[Override]
+    public function retryFailed(int $id, DateTimeImmutable $now): bool
+    {
+        $at     = DbTime::format($now);
+        $update = $this->db
+            ->sql
+            ->update(self::TABLE)
+            ->set([
+                'state'           => JobState::Waiting->value,
+                'attempts'        => 0,
+                'next_attempt_at' => $at,
+                'finished_at'     => null,
+                'updated_at'      => $at,
+            ])
+            ->where(['id' => $id, 'state' => JobState::Failed->value]);
+
+        return 1 === $this->db->affectedRows($update);
     }
 
     /**

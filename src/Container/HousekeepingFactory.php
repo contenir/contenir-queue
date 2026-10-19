@@ -7,6 +7,7 @@ namespace Contenir\Queue\Container;
 use Contenir\Queue\Exception\ConfigurationException;
 use Contenir\Queue\Job\JobRunner;
 use Contenir\Queue\Storage\JobStoreInterface;
+use Contenir\Queue\Storage\ScheduleStoreInterface;
 use Contenir\Queue\Worker\Housekeeping;
 use Psr\Container\ContainerExceptionInterface;
 use Psr\Container\ContainerInterface;
@@ -26,6 +27,7 @@ final class HousekeepingFactory
 
         return new Housekeeping(
             $config->get(JobStoreInterface::class),
+            $config->get(ScheduleStoreInterface::class),
             $config->get(JobRunner::class),
             $config->clock(),
             $config->logger(),

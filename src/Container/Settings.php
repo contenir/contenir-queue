@@ -17,6 +17,9 @@ use function is_string;
  * key takes its default; a key present with the wrong type is an error.
  *
  * @internal
+ *
+ * @mago-expect lint:too-many-methods One typed reader per kind of setting.
+ * @mago-expect lint:cyclomatic-complexity Each reader checks its own type.
  */
 final readonly class Settings
 {
@@ -29,6 +32,27 @@ final readonly class Settings
     ) {}
 
     /**
+     * An array of anything, such as a job's payload.
+     *
+     * @return array<array-key, mixed>
+     *
+     * @throws ConfigurationException
+     *
+     * @mago-expect analysis:mixed-assignment Config values are untyped; the type is checked here.
+     */
+    public function array(string $key): array
+    {
+        $value = $this->values[$key] ?? [];
+
+        return is_array($value) ? $value : throw $this->invalid($key, 'an array');
+    }
+
+    public function has(string $key): bool
+    {
+        return null !== ($this->values[$key] ?? null);
+    }
+
+    /**
      * @throws ConfigurationException
      *
      * @mago-expect analysis:mixed-assignment Config values are untyped; the type is checked here.
@@ -38,6 +62,24 @@ final readonly class Settings
         $value = $this->values[$key] ?? $default;
 
         return is_int($value) ? $value : throw $this->invalid($key, 'an integer');
+    }
+
+    /**
+     * The sections of a map, by their names. PHP keeps a numeric name as an
+     * integer key.
+     *
+     * @return array<array-key, self>
+     *
+     * @throws ConfigurationException
+     */
+    public function map(string $key): array
+    {
+        $sections = [];
+        foreach ($this->array($key) as $name => $_) {
+            $sections[$name] = $this->section($key)->section((string) $name);
+        }
+
+        return $sections;
     }
 
     /**
@@ -55,6 +97,32 @@ final readonly class Settings
     }
 
     /**
+     * The path of a key, for messages.
+     */
+    public function path(string $key): string
+    {
+        return "{$this->path}.{$key}";
+    }
+
+    /**
+     * An integer that must be given.
+     *
+     * @throws ConfigurationException
+     *
+     * @mago-expect analysis:mixed-assignment Config values are untyped; the type is checked here.
+     */
+    public function requiredInt(string $key): int
+    {
+        $value = $this->values[$key] ?? null;
+
+        return match (true) {
+            null === $value => throw $this->invalid($key, 'given'),
+            is_int($value) => $value,
+            default        => throw $this->invalid($key, 'an integer'),
+        };
+    }
+
+    /**
      * @throws ConfigurationException
      *
      * @mago-expect analysis:mixed-assignment Config values are untyped; the type is checked here.
@@ -63,7 +131,7 @@ final readonly class Settings
     {
         $value = $this->values[$key] ?? [];
 
-        return is_array($value) ? new self($value, "{$this->path}.{$key}") : throw $this->invalid($key, 'an array');
+        return is_array($value) ? new self($value, $this->path($key)) : throw $this->invalid($key, 'an array');
     }
 
     /**
@@ -102,6 +170,6 @@ final readonly class Settings
 
     private function invalid(string $key, string $expected): ConfigurationException
     {
-        return ConfigurationException::invalidSetting("{$this->path}.{$key}", $expected);
+        return ConfigurationException::invalidSetting($this->path($key), $expected);
     }
 }

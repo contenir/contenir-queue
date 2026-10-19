@@ -9,8 +9,10 @@ use Contenir\Queue\Container\HousekeepingFactory;
 use Contenir\Queue\Container\PhpDbWorkerStoreFactory;
 use Contenir\Queue\Container\WorkerFactory;
 use Contenir\Queue\Job\JobRunner;
+use Contenir\Queue\Schedule\Scheduler;
 use Contenir\Queue\Storage\JobStoreInterface;
 use Contenir\Queue\Storage\PhpDbWorkerStore;
+use Contenir\Queue\Storage\ScheduleStoreInterface;
 use Contenir\Queue\Storage\WorkerStoreInterface;
 use Contenir\Queue\Tests\TestAsset\Container\ArrayContainer;
 use Contenir\Queue\Tests\TestAsset\Log\RecordingLogger;
@@ -42,7 +44,7 @@ final class WorkerFactoriesTest extends TestCase
         $housekeeping = (new HousekeepingFactory())($this->container($kit, $logger));
 
         static::assertSame(
-            [Housekeeping::class, 1, ['info: Deleted 1 done jobs older than 1 days']],
+            [Housekeeping::class, 1, ['info: Deleted 1 done jobs and 0 schedule runs older than 1 days']],
             [$housekeeping::class, $housekeeping->pruneDone(1), $logger->lines],
         );
     }
@@ -92,13 +94,15 @@ final class WorkerFactoriesTest extends TestCase
     private function container(WorkerKit $kit, RecordingLogger $logger, array $settings = []): ArrayContainer
     {
         return new ArrayContainer([
-            'config'                    => ['contenir_queue' => $settings],
-            JobStoreInterface::class    => $kit->jobs,
-            JobRunner::class            => $kit->runner,
-            Housekeeping::class         => $kit->housekeeping,
-            WorkerStoreInterface::class => $kit->workers,
-            ClockInterface::class       => $kit->clock,
-            LoggerInterface::class      => $logger,
+            'config'                      => ['contenir_queue' => $settings],
+            JobStoreInterface::class      => $kit->jobs,
+            JobRunner::class              => $kit->runner,
+            Housekeeping::class           => $kit->housekeeping,
+            WorkerStoreInterface::class   => $kit->workers,
+            ScheduleStoreInterface::class => $kit->scheduleStore,
+            Scheduler::class              => $kit->scheduler,
+            ClockInterface::class         => $kit->clock,
+            LoggerInterface::class        => $logger,
         ]);
     }
 }

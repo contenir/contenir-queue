@@ -7,6 +7,7 @@ namespace Contenir\Queue\Worker;
 use Contenir\Queue\Exception\StorageException;
 use Contenir\Queue\Job\JobRunner;
 use Contenir\Queue\Storage\JobStoreInterface;
+use Contenir\Queue\Storage\ScheduleStoreInterface;
 use Psr\Clock\ClockInterface;
 use Psr\Log\LoggerInterface;
 
@@ -14,7 +15,7 @@ use function count;
 
 /**
  * Tidying a worker does before it takes jobs: retrying jobs whose worker died
- * mid-run, and deleting old done jobs.
+ * mid-run, and deleting old done jobs and schedule runs.
  *
  * @api
  */
@@ -29,13 +30,15 @@ final readonly class Housekeeping
 
     public function __construct(
         private JobStoreInterface $jobs,
+        private ScheduleStoreInterface $schedules,
         private JobRunner $runner,
         private ClockInterface $clock,
         private LoggerInterface $logger,
     ) {}
 
     /**
-     * Delete done jobs older than the given number of days, unless it is 0.
+     * Delete done jobs, and records of schedule runs, older than the given
+     * number of days, unless it is 0. Returns how many jobs were deleted.
      *
      * @throws StorageException
      */
@@ -45,15 +48,18 @@ final readonly class Housekeeping
             return 0;
         }
 
-        $pruned = $this->jobs->pruneDone($this->clock->now()->modify("-{$days} days"));
-        if ($pruned > 0) {
-            $this->logger->info('Deleted {count} done jobs older than {days} days', [
-                'count' => $pruned,
-                'days'  => $days,
+        $before = $this->clock->now()->modify("-{$days} days");
+        $jobs   = $this->jobs->pruneDone($before);
+        $runs   = $this->schedules->pruneRuns($before);
+        if (($jobs + $runs) > 0) {
+            $this->logger->info('Deleted {jobs} done jobs and {runs} schedule runs older than {days} days', [
+                'jobs' => $jobs,
+                'runs' => $runs,
+                'days' => $days,
             ]);
         }
 
-        return $pruned;
+        return $jobs;
     }
 
     /**

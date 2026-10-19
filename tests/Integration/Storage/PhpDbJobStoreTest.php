@@ -31,6 +31,22 @@ final class PhpDbJobStoreTest extends TestCase
         return DbTime::parse('2026-10-19 ' . (strlen($time) === 5 ? "{$time}:00" : $time));
     }
 
+    /**
+     * @param list<Job> $jobs
+     *
+     * @return list<int>
+     */
+    private static function ids(array $jobs): array
+    {
+        return array_map(static fn(Job $job): int => $job->id, $jobs);
+    }
+
+    #[Test]
+    public function anEmptyQueueCountsNothing(): void
+    {
+        static::assertSame(['waiting' => 0, 'running' => 0, 'done' => 0, 'failed' => 0], $this->store->countByState());
+    }
+
     #[Test]
     public function claimHonoursTheQueues(): void
     {
@@ -150,6 +166,44 @@ final class PhpDbJobStoreTest extends TestCase
     }
 
     #[Test]
+    public function countByStateCountsEveryState(): void
+    {
+        $this->claimed();
+        $failed = $this->claimed();
+        $this->store->fail($failed, 'x', self::at('09:00'));
+        $this->push();
+
+        static::assertSame(
+            ['waiting' => 1, 'running' => 1, 'done' => 0, 'failed' => 1],
+            $this->store->countByState(),
+        );
+    }
+
+    #[Test]
+    public function deleteRemovesAJobThatIsNotRunning(): void
+    {
+        $failed = $this->claimed();
+        $this->store->fail($failed, 'x', self::at('09:00'));
+        $running = $this->claimed();
+        $waiting = $this->push();
+        $other   = $this->push(due: '10:00');
+
+        static::assertSame(
+            [true, true, false, false, null, null, true, true],
+            [
+                $this->store->delete($waiting),
+                $this->store->delete($failed->id),
+                $this->store->delete($running->id),
+                $this->store->delete(999),
+                $this->store->find($waiting),
+                $this->store->find($failed->id),
+                null !== $this->store->find($running->id),
+                null !== $this->store->find($other),
+            ],
+        );
+    }
+
+    #[Test]
     public function failMarksTheJobFailedWithTheError(): void
     {
         $job = $this->claimed();
@@ -160,6 +214,65 @@ final class PhpDbJobStoreTest extends TestCase
         static::assertSame(
             [true, JobState::Failed, null, null, '09:03:00', '09:03:00', 'Boom'],
             [...$this->summary($failed, $job->id), $stored?->lastError],
+        );
+    }
+
+    #[Test]
+    public function findByStateListsFinishedJobsNewestFirst(): void
+    {
+        $new = $this->claimed();
+        $this->store->fail($new, 'x', self::at('09:02'));
+        $old = $this->claimed();
+        $this->store->fail($old, 'x', self::at('09:01'));
+        $tie = $this->claimed();
+        $this->store->fail($tie, 'x', self::at('09:02'));
+        $done = $this->claimed();
+        $this->store->complete($done, self::at('09:03'));
+
+        static::assertSame(
+            [[$tie->id, $new->id, $old->id], [$done->id]],
+            [
+                self::ids($this->store->findByState(JobState::Failed, 10, 0)),
+                self::ids($this->store->findByState(JobState::Done, 10, 0)),
+            ],
+        );
+    }
+
+    #[Test]
+    public function findByStateListsRunningJobsByLockTime(): void
+    {
+        $first  = $this->push(due: '07:00');
+        $second = $this->push(due: '07:00');
+        $third  = $this->push(due: '07:00');
+        $this->store->claimNext([], 'a', self::at('07:30'));
+        $this->store->claimNext([], 'b', self::at('08:00'));
+        $this->store->claimNext([], 'c', self::at('07:45'));
+
+        static::assertSame([$first, $third, $second], self::ids($this->store->findByState(JobState::Running, 10, 0)));
+    }
+
+    #[Test]
+    public function findByStateListsWaitingJobsByNextAttempt(): void
+    {
+        $later  = $this->push(due: '09:30');
+        $sooner = $this->push(due: '09:10');
+        $tied   = $this->push(due: '09:10');
+        $this->claimed();
+
+        static::assertSame([$sooner, $tied, $later], self::ids($this->store->findByState(JobState::Waiting, 10, 0)));
+    }
+
+    #[Test]
+    public function findByStatePages(): void
+    {
+        $ids = [$this->push(due: '09:01'), $this->push(due: '09:02'), $this->push(due: '09:03')];
+
+        static::assertSame(
+            [[$ids[0], $ids[1]], [$ids[2]]],
+            [
+                self::ids($this->store->findByState(JobState::Waiting, 2, 0)),
+                self::ids($this->store->findByState(JobState::Waiting, 2, 2)),
+            ],
         );
     }
 
@@ -269,6 +382,25 @@ final class PhpDbJobStoreTest extends TestCase
     }
 
     #[Test]
+    public function oldestWaitingSinceIsNullWhenNothingWaits(): void
+    {
+        $this->claimed();
+
+        static::assertNull($this->store->oldestWaitingSince());
+    }
+
+    #[Test]
+    public function oldestWaitingSinceIsWhenTheLongestWaitingJobWasPushed(): void
+    {
+        $this->store->push('default', 'j', '[]', self::at('09:00'), self::at('07:00'));
+        $this->store->push('default', 'j', '[]', self::at('08:59'), self::at('06:00'));
+        $this->store->push('default', 'j', '[]', self::at('09:00'), self::at('08:00'));
+        $this->store->claimNext([], 'w', self::at('09:00'));
+
+        static::assertSame('07:00:00', $this->store->oldestWaitingSince()?->format('H:i:s'));
+    }
+
+    #[Test]
     public function payloadSurvivesTheRoundTrip(): void
     {
         $id = $this->store->push('default', 'J', '{"name":"Zoë","n":[1,2]}', self::at('09:00'), self::at('09:00'));
@@ -338,6 +470,61 @@ final class PhpDbJobStoreTest extends TestCase
             ),
             $job,
         );
+    }
+
+    #[Test]
+    public function retryFailedGivesAFailedJobFreshAttempts(): void
+    {
+        $job = $this->claimed();
+        $this->store->fail($job, 'Boom', self::at('09:01'));
+
+        $retried = $this->store->retryFailed($job->id, self::at('10:00'));
+        $stored  = $this->store->find($job->id);
+
+        static::assertSame(
+            [true, JobState::Waiting, 0, '10:00:00', null, '10:00:00', 'Boom'],
+            [
+                $retried,
+                $stored?->state,
+                $stored?->attempts,
+                $stored?->nextAttemptAt->format('H:i:s'),
+                $stored?->finishedAt,
+                $stored?->updatedAt->format('H:i:s'),
+                $stored?->lastError,
+            ],
+        );
+    }
+
+    #[Test]
+    public function retryFailedLeavesOtherJobsAlone(): void
+    {
+        $waiting = $this->push();
+        $running = $this->claimed();
+        $done    = $this->claimed();
+        $this->store->complete($done, self::at('09:00'));
+
+        static::assertSame(
+            [false, false, false, false],
+            [
+                $this->store->retryFailed($waiting, self::at('10:00')),
+                $this->store->retryFailed($running->id, self::at('10:00')),
+                $this->store->retryFailed($done->id, self::at('10:00')),
+                $this->store->retryFailed(999, self::at('10:00')),
+            ],
+        );
+    }
+
+    #[Test]
+    public function retryFailedRetriesOnlyThatJob(): void
+    {
+        $first = $this->claimed();
+        $this->store->fail($first, 'x', self::at('09:01'));
+        $second = $this->claimed();
+        $this->store->fail($second, 'x', self::at('09:01'));
+
+        $this->store->retryFailed($first->id, self::at('10:00'));
+
+        static::assertSame(JobState::Failed, $this->store->find($second->id)?->state);
     }
 
     #[Test]

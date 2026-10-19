@@ -9,16 +9,26 @@ use Contenir\Queue\Container\DrainerFactory;
 use Contenir\Queue\Container\HousekeepingFactory;
 use Contenir\Queue\Container\JobRunnerFactory;
 use Contenir\Queue\Container\PhpDbJobStoreFactory;
+use Contenir\Queue\Container\PhpDbScheduleStoreFactory;
 use Contenir\Queue\Container\PhpDbWorkerStoreFactory;
 use Contenir\Queue\Container\QueueFactory;
+use Contenir\Queue\Container\QueueMonitorFactory;
+use Contenir\Queue\Container\SchedulerFactory;
+use Contenir\Queue\Container\SchedulesFactory;
 use Contenir\Queue\Container\WorkerFactory;
 use Contenir\Queue\Job\JobRunner;
+use Contenir\Queue\Monitor\QueueMonitor;
 use Contenir\Queue\Queue;
 use Contenir\Queue\QueueInterface;
+use Contenir\Queue\Schedule\Scheduler;
+use Contenir\Queue\Schedule\Schedules;
 use Contenir\Queue\Schema\Version20261019000100CreateQueueJob;
+use Contenir\Queue\Storage\JobBrowserInterface;
 use Contenir\Queue\Storage\JobStoreInterface;
 use Contenir\Queue\Storage\PhpDbJobStore;
+use Contenir\Queue\Storage\PhpDbScheduleStore;
 use Contenir\Queue\Storage\PhpDbWorkerStore;
+use Contenir\Queue\Storage\ScheduleStoreInterface;
 use Contenir\Queue\Storage\WorkerStoreInterface;
 use Contenir\Queue\Worker\Drainer;
 use Contenir\Queue\Worker\Housekeeping;
@@ -75,18 +85,24 @@ final class ConfigProviderTest extends TestCase
         static::assertSame(
             [
                 'aliases'   => [
-                    QueueInterface::class       => Queue::class,
-                    JobStoreInterface::class    => PhpDbJobStore::class,
-                    WorkerStoreInterface::class => PhpDbWorkerStore::class,
+                    QueueInterface::class         => Queue::class,
+                    JobBrowserInterface::class    => PhpDbJobStore::class,
+                    JobStoreInterface::class      => PhpDbJobStore::class,
+                    ScheduleStoreInterface::class => PhpDbScheduleStore::class,
+                    WorkerStoreInterface::class   => PhpDbWorkerStore::class,
                 ],
                 'factories' => [
-                    Drainer::class          => DrainerFactory::class,
-                    Housekeeping::class     => HousekeepingFactory::class,
-                    JobRunner::class        => JobRunnerFactory::class,
-                    PhpDbJobStore::class    => PhpDbJobStoreFactory::class,
-                    PhpDbWorkerStore::class => PhpDbWorkerStoreFactory::class,
-                    Queue::class            => QueueFactory::class,
-                    Worker::class           => WorkerFactory::class,
+                    Drainer::class            => DrainerFactory::class,
+                    Housekeeping::class       => HousekeepingFactory::class,
+                    JobRunner::class          => JobRunnerFactory::class,
+                    PhpDbJobStore::class      => PhpDbJobStoreFactory::class,
+                    PhpDbScheduleStore::class => PhpDbScheduleStoreFactory::class,
+                    PhpDbWorkerStore::class   => PhpDbWorkerStoreFactory::class,
+                    Queue::class              => QueueFactory::class,
+                    QueueMonitor::class       => QueueMonitorFactory::class,
+                    Scheduler::class          => SchedulerFactory::class,
+                    Schedules::class          => SchedulesFactory::class,
+                    Worker::class             => WorkerFactory::class,
                 ],
             ],
             (new ConfigProvider())()['dependencies'],
