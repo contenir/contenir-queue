@@ -25,6 +25,7 @@ final class RetryLaterExceptionTest extends TestCase
             'seconds with whitespace' => [' 30 ', '2026-10-19 09:00:30'],
             'zero seconds'            => ['0', '2026-10-19 09:00:00'],
             'an HTTP date'            => ['Mon, 19 Oct 2026 10:15:00 GMT', '2026-10-19 10:15:00'],
+            'a date in another zone'  => ['Mon, 19 Oct 2026 21:15:00 +1100', '2026-10-19 10:15:00'],
             'neither'                 => ['soon', null],
             'a negative number'       => ['-5', null],
             'empty'                   => ['', null],

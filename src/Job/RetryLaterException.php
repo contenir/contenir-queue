@@ -6,7 +6,6 @@ namespace Contenir\Queue\Job;
 
 use DateInterval;
 use DateTimeImmutable;
-use DateTimeInterface;
 use RuntimeException;
 
 use function ctype_digit;
@@ -21,6 +20,13 @@ use function trim;
  */
 final class RetryLaterException extends RuntimeException
 {
+    /**
+     * An HTTP date (RFC 9110), such as "Sun, 06 Nov 1994 08:49:37 GMT". PHP
+     * 8.5 deprecates DateTimeInterface::RFC7231, which reads the same text but
+     * ignores the zone.
+     */
+    private const string HTTP_DATE = 'D, d M Y H:i:s T';
+
     private function __construct(
         string $message,
         private readonly ?int $seconds,
@@ -56,7 +62,7 @@ final class RetryLaterException extends RuntimeException
             return self::after((int) $value, $message);
         }
 
-        $at = DateTimeImmutable::createFromFormat(DateTimeInterface::RFC7231, $value);
+        $at = DateTimeImmutable::createFromFormat(self::HTTP_DATE, $value);
 
         return new self($message, null, false === $at ? null : $at);
     }
