@@ -1,0 +1,53 @@
+#!/usr/bin/env php
+<?php
+
+/**
+ * Runs the contenir/queue worker. Cron runs it every minute:
+ *
+ *     * * * * * cd /path/to/site && php vendor/bin/contenir-queue
+ *
+ * See `contenir-queue --help` for the options.
+ */
+
+declare(strict_types=1);
+
+use Contenir\Queue\Console\ContainerLoader;
+use Contenir\Queue\Console\WorkerCommand;
+use Contenir\Queue\Container\QueueConfig;
+use Contenir\Queue\Worker\Worker;
+
+foreach ([__DIR__ . '/../../../autoload.php', __DIR__ . '/../vendor/autoload.php'] as $autoload) {
+    if (is_file($autoload)) {
+        require $autoload;
+        break;
+    }
+}
+
+$args = array_values(array_slice($argv, 1));
+$out  = static function (string $text): void {
+    fwrite(STDOUT, $text);
+};
+
+try {
+    $env       = getenv(ContainerLoader::ENV);
+    $container = ContainerLoader::load(
+        ContainerLoader::file($args, is_string($env) ? $env : null, (string) getcwd()),
+    );
+    $worker    = $container->get(Worker::class);
+    if (! $worker instanceof Worker) {
+        throw new UnexpectedValueException('The container has no ' . Worker::class);
+    }
+
+    $options   = QueueConfig::fromContainer($container)->workerOptions();
+} catch (Throwable $e) {
+    fwrite(STDERR, $e->getMessage() . "\n");
+    exit(WorkerCommand::ERROR);
+}
+
+if (function_exists('pcntl_async_signals')) {
+    pcntl_async_signals(true);
+    pcntl_signal(SIGTERM, static fn() => $worker->stop());
+    pcntl_signal(SIGINT, static fn() => $worker->stop());
+}
+
+exit((new WorkerCommand($worker, $options, $out))->run($args));

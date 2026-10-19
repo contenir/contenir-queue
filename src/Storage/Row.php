@@ -55,6 +55,14 @@ final readonly class Row
 
     /**
      * @throws StorageException
+     */
+    public function nullableInt(string $column): ?int
+    {
+        return null === $this->nullableString($column) ? null : $this->int($column);
+    }
+
+    /**
+     * @throws StorageException
      *
      * @mago-expect analysis:mixed-assignment Column values are untyped; the type is checked here.
      */

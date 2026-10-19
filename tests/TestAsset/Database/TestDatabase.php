@@ -30,7 +30,7 @@ final class TestDatabase
     /**
      * Every table the queue's migrations create, plus the runner's own.
      */
-    public const array TABLES = ['queue_job', 'migrations'];
+    public const array TABLES = ['queue_job', 'queue_worker', 'migrations'];
 
     public static function connect(): AdapterInterface
     {
@@ -60,6 +60,14 @@ final class TestDatabase
             MismatchStrategy::Report,
             self::metadata($adapter),
         );
+    }
+
+    /**
+     * SQLite in a file, for tests that hand the database to another process.
+     */
+    public static function sqliteFile(string $file): AdapterInterface
+    {
+        return self::sqlite($file);
     }
 
     private static function env(string $name, string $default): string
@@ -92,9 +100,9 @@ final class TestDatabase
         return new Adapter($driver, new Mysql\AdapterPlatform($driver));
     }
 
-    private static function sqlite(): AdapterInterface
+    private static function sqlite(string $file = ':memory:'): AdapterInterface
     {
-        $pdo = new PDO('sqlite::memory:');
+        $pdo = new PDO("sqlite:{$file}");
         $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
         $driver = new Sqlite\Pdo\Driver(connection: new Sqlite\Pdo\Connection($pdo));
 

@@ -15,6 +15,7 @@ use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 
+use function array_map;
 use function strlen;
 
 #[Group('integration')]
@@ -169,6 +170,61 @@ final class PhpDbJobStoreTest extends TestCase
     }
 
     #[Test]
+    public function findStaleListsRunningJobsLockedBeforeTheCutOff(): void
+    {
+        $this->push(due: '07:00');
+        $this->push(due: '07:00');
+        $this->push(due: '07:00');
+        $old    = $this->store->claimNext([], 'a', self::at('08:00'));
+        $edge   = $this->store->claimNext([], 'b', self::at('08:30'));
+        $recent = $this->store->claimNext([], 'c', self::at('08:59'));
+        self::assertNotNull($recent);
+        $this->store->complete($recent, self::at('08:59'));
+
+        static::assertSame(
+            [$old?->id],
+            array_map(static fn(Job $job): int => $job->id, $this->store->findStale(self::at('08:30'), 10)),
+        );
+        unset($edge);
+    }
+
+    #[Test]
+    public function findStaleListsTheOldestLocksFirstUpToTheLimit(): void
+    {
+        $ids = [$this->push(due: '07:00'), $this->push(due: '07:00'), $this->push(due: '07:00')];
+        $this->store->claimNext([], 'a', self::at('08:20'));
+        $this->store->claimNext([], 'b', self::at('08:10'));
+        $this->store->claimNext([], 'c', self::at('08:10'));
+
+        static::assertSame(
+            [$ids[1], $ids[2]],
+            array_map(static fn(Job $job): int => $job->id, $this->store->findStale(self::at('09:00'), 2)),
+        );
+    }
+
+    #[Test]
+    public function findStaleSkipsAFinishedJobThatKeptItsLock(): void
+    {
+        $job = $this->claimed();
+        $this->adapter->query(
+            "UPDATE queue_job SET state = 'done' WHERE id = {$job->id}",
+            Adapter::QUERY_MODE_EXECUTE,
+        );
+
+        static::assertSame([], $this->store->findStale(self::at('10:00'), 10));
+    }
+
+    #[Test]
+    public function findStaleSkipsJobsThatAreNotRunning(): void
+    {
+        $this->push();
+        $job = $this->claimed();
+        $this->store->fail($job, 'x', self::at('09:00'));
+
+        static::assertSame([], $this->store->findStale(self::at('10:00'), 10));
+    }
+
+    #[Test]
     public function finishingIsRefusedOnceTheJobIsNoLongerRunning(): void
     {
         $job = $this->claimed();
@@ -218,6 +274,29 @@ final class PhpDbJobStoreTest extends TestCase
         $id = $this->store->push('default', 'J', '{"name":"Zoë","n":[1,2]}', self::at('09:00'), self::at('09:00'));
 
         static::assertSame(['name' => 'Zoë', 'n' => [1, 2]], $this->store->find($id)?->payload());
+    }
+
+    #[Test]
+    public function pruneDoneDeletesOnlyDoneJobsFinishedBeforeTheCutOff(): void
+    {
+        $oldDone = $this->claimed();
+        $this->store->complete($oldDone, self::at('08:00'));
+        $edgeDone = $this->claimed();
+        $this->store->complete($edgeDone, self::at('08:30'));
+        $oldFailed = $this->claimed();
+        $this->store->fail($oldFailed, 'x', self::at('08:00'));
+        $waiting = $this->push();
+
+        static::assertSame(
+            [1, null, true, true, true],
+            [
+                $this->store->pruneDone(self::at('08:30')),
+                $this->store->find($oldDone->id),
+                null !== $this->store->find($edgeDone->id),
+                null !== $this->store->find($oldFailed->id),
+                null !== $this->store->find($waiting),
+            ],
+        );
     }
 
     #[Test]

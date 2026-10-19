@@ -25,6 +25,9 @@
         "psr/container": "^1.1 || ^2.0",
         "psr/log": "^1.1 || ^2.0 || ^3.0"
     },
+    "suggest": {
+        "ext-pcntl": "Lets a long-running worker (--daemon) stop cleanly on SIGTERM"
+    },
     "require-dev": {
         "contenir/contenir-qa-tools": "0.1.x-dev",
         "infection/infection": "^0.34.1",
@@ -32,6 +35,9 @@
         "php-db/phpdb-sqlite": "0.3.x-dev",
         "phpunit/phpunit": "^11.5.42"
     },
+    "bin": [
+        "bin/contenir-queue"
+    ],
     "autoload": {
         "psr-4": {
             "Contenir\\Queue\\": "src/",

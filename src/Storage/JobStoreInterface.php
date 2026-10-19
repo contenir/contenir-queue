@@ -49,6 +49,24 @@ interface JobStoreInterface
     public function find(int $id): ?Job;
 
     /**
+     * Running jobs locked before the given time, oldest lock first: their
+     * worker has most likely stopped.
+     *
+     * @return list<Job>
+     *
+     * @throws StorageException
+     */
+    public function findStale(DateTimeImmutable $lockedBefore, int $limit): array;
+
+    /**
+     * Delete done jobs that finished before the given time, and return how
+     * many. Failed jobs are kept until someone retries or deletes them.
+     *
+     * @throws StorageException
+     */
+    public function pruneDone(DateTimeImmutable $finishedBefore): int;
+
+    /**
      * Store a new waiting job and return its id.
      *
      * @throws StorageException

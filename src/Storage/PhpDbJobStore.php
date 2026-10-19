@@ -17,6 +17,8 @@ use PhpDb\Sql\Where;
  * Jobs in the `queue_job` table, through php-db, on MySQL or SQLite.
  *
  * @api
+ *
+ * @mago-expect lint:too-many-methods One method per JobStoreInterface operation, plus the update and hydration they share.
  */
 final readonly class PhpDbJobStore implements JobStoreInterface
 {
@@ -130,6 +132,44 @@ final readonly class PhpDbJobStore implements JobStoreInterface
         $row = $this->db->row($this->db->sql->select(self::TABLE)->where(['id' => $id]));
 
         return null === $row ? null : self::hydrate($row);
+    }
+
+    #[Override]
+    public function findStale(DateTimeImmutable $lockedBefore, int $limit): array
+    {
+        $before = DbTime::format($lockedBefore);
+        $select = $this->db
+            ->sql
+            ->select(self::TABLE)
+            ->where(static function (Where $where) use ($before): void {
+                $where->equalTo('state', JobState::Running->value);
+                $where->lessThan('locked_at', $before);
+            })
+            ->order(['locked_at ASC', 'id ASC'])
+            ->limit($limit);
+
+        $jobs = [];
+        foreach ($this->db->rows($select) as $row) {
+            $jobs[] = self::hydrate($row);
+        }
+
+        return $jobs;
+    }
+
+    #[Override]
+    public function pruneDone(DateTimeImmutable $finishedBefore): int
+    {
+        $before = DbTime::format($finishedBefore);
+
+        return $this->db->affectedRows(
+            $this->db
+                ->sql
+                ->delete(self::TABLE)
+                ->where(static function (Where $where) use ($before): void {
+                    $where->equalTo('state', JobState::Done->value);
+                    $where->lessThan('finished_at', $before);
+                }),
+        );
     }
 
     #[Override]

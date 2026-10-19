@@ -9,6 +9,10 @@ and add-ons can hand work to the background and know it will run.
 - **Jobs** live in a table in the site's database, MySQL or SQLite. A job is never lost because nothing was running
   when it was pushed.
 - **Retries** back off from one minute to 24 hours, honour a `Retry-After`, and then mark the job failed.
+- **A worker**, `bin/contenir-queue`, that cron runs every minute. It takes a lock so only one runs, and writes a
+  heartbeat a host can check. It also runs under a process supervisor.
+- **Draining without cron**: a web request can run a few due jobs after its response has been sent, so a site whose
+  cron entry is missing slows down instead of stopping.
 
 It is framework free: job handlers come from any PSR-11 container, logging is PSR-3, time is a PSR-20 clock, and
 storage is [php-db](https://github.com/php-db/phpdb). There are no Laminas MVC or Mezzio types; a host wires it in.
@@ -57,6 +61,18 @@ return [
         'logger'   => Psr\Log\LoggerInterface::class,        // no logging if absent
         'handlers' => '',                                     // a container for job handlers; '' is this one
         'backoff'  => ['initial_seconds' => 60, 'max_seconds' => 86400, 'factor' => 2],
+        'worker'   => [
+            'name'                => 'default', // the lock and heartbeat
+            'queues'              => [],        // all
+            'max_seconds'         => 50,        // 0: run until stopped
+            'max_jobs'            => 0,         // no limit
+            'sleep_seconds'       => 5,         // wait when there is nothing to do
+            'memory_limit_mb'     => 128,
+            'lock_seconds'        => 300,       // how long a dead worker keeps others out
+            'stale_after_seconds' => 3600,      // a job locked this long is retried
+            'prune_after_days'    => 7,         // done jobs older than this are deleted; 0 keeps them
+        ],
+        'drain'    => ['max_jobs' => 3, 'max_seconds' => 2, 'skip_when_heartbeat_within' => 120],
     ],
 ];
 ```
@@ -112,6 +128,51 @@ vanishing.
 
 States: `waiting` (new, or waiting for a retry), `running` (locked by the worker running it), `done` and `failed`.
 Finished jobs stay in the table.
+
+## The worker
+
+Cron runs the worker every minute from the site's directory:
+
+```
+* * * * * cd /path/to/site && php vendor/bin/contenir-queue
+```
+
+It needs the host's PSR-11 container: a PHP file that returns it, given as `--container=FILE`, or in the
+`CONTENIR_QUEUE_CONTAINER` environment variable, or at `config/container.php` by default.
+
+Each run takes the worker lock. If another run still holds it, this one says so and stops. Otherwise it retries jobs
+whose worker died mid-run, deletes done jobs older than a week, and then runs due jobs one at a time. When there is
+nothing to do it waits five seconds and looks again. After 50 seconds it takes no new jobs, finishes the one it is
+running, releases the lock and exits. Every turn renews the lock, and the renewal is the heartbeat.
+
+For a busy site, run it under a process supervisor instead:
+
+```
+php vendor/bin/contenir-queue --daemon
+```
+
+It runs until it receives SIGTERM or SIGINT (with the `pcntl` extension), reaches its memory limit or `--max-jobs`,
+then finishes its current job and exits for the supervisor to restart it. `--help` lists the options, which override
+the `worker` settings.
+
+From PHP, `Worker::run(WorkerOptions)` does the same and returns a `WorkerReport`.
+
+## Without cron
+
+After the response has been sent, a host can run a few due jobs:
+
+```php
+use Contenir\Queue\Worker\Drainer;
+
+if (function_exists('fastcgi_finish_request')) {
+    fastcgi_finish_request();
+}
+
+$container->get(Drainer::class)->drain();
+```
+
+It runs at most three jobs and starts none after two seconds. It does nothing while the worker's heartbeat is less
+than two minutes old, so it only works when cron doesn't. It doesn't delete old done jobs; the worker does that.
 
 ## Development
 

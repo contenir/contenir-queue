@@ -7,7 +7,8 @@ namespace Contenir\Queue\Container;
 use Contenir\Queue\Clock\SystemClock;
 use Contenir\Queue\Exception\ConfigurationException;
 use Contenir\Queue\Job\Backoff;
-use Contenir\Queue\Storage\JobStoreInterface;
+use Contenir\Queue\Worker\DrainOptions;
+use Contenir\Queue\Worker\WorkerOptions;
 use PhpDb\Adapter\AdapterInterface;
 use Psr\Clock\ClockInterface;
 use Psr\Container\ContainerExceptionInterface;
@@ -16,27 +17,25 @@ use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 
 use function is_array;
-use function is_int;
-use function is_string;
 
 /**
  * The `contenir_queue` configuration, and the services it names, read from
  * the container. See {@see \Contenir\Queue\ConfigProvider} for the keys.
  *
+ * Values the options refuse (a negative limit, say) raise their own
+ * InvalidArgumentException.
+ *
  * @api For hosts that build the queue's services themselves.
  *
- * @mago-expect lint:too-many-methods One accessor per setting or service, plus the readers they share.
+ * @mago-expect lint:too-many-methods One accessor per setting or service.
  */
 final readonly class QueueConfig
 {
     public const string KEY = 'contenir_queue';
 
-    /**
-     * @param array<array-key, mixed> $config
-     */
     private function __construct(
         private ContainerInterface $container,
-        private array $config,
+        private Settings $settings,
     ) {}
 
     /**
@@ -49,21 +48,7 @@ final readonly class QueueConfig
         $config = $container->has('config') ? $container->get('config') : [];
         $queue  = is_array($config) ? $config[self::KEY] ?? [] : [];
 
-        return new self($container, is_array($queue) ? $queue : []);
-    }
-
-    /**
-     * @param array<array-key, mixed> $values
-     *
-     * @throws ConfigurationException
-     *
-     * @mago-expect analysis:mixed-assignment Config values are untyped; the type is checked here.
-     */
-    private static function intIn(array $values, string $key, int $default): int
-    {
-        $value = $values[$key] ?? $default;
-
-        return is_int($value) ? $value : throw ConfigurationException::invalidSetting($key, 'an integer');
+        return new self($container, new Settings(is_array($queue) ? $queue : [], self::KEY));
     }
 
     /**
@@ -74,7 +59,7 @@ final readonly class QueueConfig
      */
     public function adapter(): AdapterInterface
     {
-        return $this->service($this->string('adapter', AdapterInterface::class), AdapterInterface::class);
+        return $this->service($this->settings->string('adapter', AdapterInterface::class), AdapterInterface::class);
     }
 
     /**
@@ -82,12 +67,12 @@ final readonly class QueueConfig
      */
     public function backoff(): Backoff
     {
-        $backoff = $this->section('backoff');
+        $backoff = $this->settings->section('backoff');
 
         return new Backoff(
-            self::intIn($backoff, 'initial_seconds', Backoff::DEFAULT_INITIAL_SECONDS),
-            self::intIn($backoff, 'max_seconds', Backoff::DEFAULT_MAX_SECONDS),
-            self::intIn($backoff, 'factor', Backoff::DEFAULT_FACTOR),
+            $backoff->int('initial_seconds', Backoff::DEFAULT_INITIAL_SECONDS),
+            $backoff->int('max_seconds', Backoff::DEFAULT_MAX_SECONDS),
+            $backoff->int('factor', Backoff::DEFAULT_FACTOR),
         );
     }
 
@@ -100,11 +85,45 @@ final readonly class QueueConfig
      */
     public function clock(): ClockInterface
     {
-        $name = $this->string('clock', ClockInterface::class);
+        $name = $this->settings->string('clock', ClockInterface::class);
 
         return $this->container->has($name)
             ? $this->service($name, ClockInterface::class)
             : new SystemClock();
+    }
+
+    /**
+     * @throws ConfigurationException
+     */
+    public function drainOptions(): DrainOptions
+    {
+        $drain  = $this->settings->section('drain');
+        $worker = $this->settings->section('worker');
+
+        return new DrainOptions(
+            maxJobs: $drain->int('max_jobs', 3),
+            maxSeconds: $drain->number('max_seconds', 2.0),
+            workerName: $worker->string('name', WorkerOptions::DEFAULT_NAME),
+            skipWhenHeartbeatWithin: $drain->int('skip_when_heartbeat_within', 120),
+            staleAfterSeconds: $worker->int('stale_after_seconds', 3600),
+        );
+    }
+
+    /**
+     * The container entry of the given type, under its own name.
+     *
+     * @template T of object
+     *
+     * @param class-string<T> $type
+     *
+     * @return T
+     *
+     * @throws ConfigurationException
+     * @throws ContainerExceptionInterface
+     */
+    public function get(string $type): object
+    {
+        return $this->service($type, $type);
     }
 
     /**
@@ -116,18 +135,9 @@ final readonly class QueueConfig
      */
     public function handlers(): ContainerInterface
     {
-        $name = $this->string('handlers', '');
+        $name = $this->settings->string('handlers', '');
 
         return '' === $name ? $this->container : $this->service($name, ContainerInterface::class);
-    }
-
-    /**
-     * @throws ConfigurationException
-     * @throws ContainerExceptionInterface
-     */
-    public function jobStore(): JobStoreInterface
-    {
-        return $this->service(JobStoreInterface::class, JobStoreInterface::class);
     }
 
     /**
@@ -139,7 +149,7 @@ final readonly class QueueConfig
      */
     public function logger(): LoggerInterface
     {
-        $name = $this->string('logger', LoggerInterface::class);
+        $name = $this->settings->string('logger', LoggerInterface::class);
 
         return $this->container->has($name)
             ? $this->service($name, LoggerInterface::class)
@@ -147,17 +157,23 @@ final readonly class QueueConfig
     }
 
     /**
-     * @return array<array-key, mixed>
-     *
      * @throws ConfigurationException
-     *
-     * @mago-expect analysis:mixed-assignment Config values are untyped; the type is checked here.
      */
-    private function section(string $key): array
+    public function workerOptions(): WorkerOptions
     {
-        $section = $this->config[$key] ?? [];
+        $worker = $this->settings->section('worker');
 
-        return is_array($section) ? $section : throw ConfigurationException::invalidSetting($key, 'an array');
+        return new WorkerOptions(
+            name: $worker->string('name', WorkerOptions::DEFAULT_NAME),
+            queues: $worker->strings('queues'),
+            maxSeconds: $worker->int('max_seconds', 50),
+            maxJobs: $worker->int('max_jobs', 0),
+            sleepSeconds: $worker->int('sleep_seconds', 5),
+            memoryLimitBytes: $worker->int('memory_limit_mb', 128) * 1024 * 1024,
+            lockSeconds: $worker->int('lock_seconds', 300),
+            staleAfterSeconds: $worker->int('stale_after_seconds', 3600),
+            pruneAfterDays: $worker->int('prune_after_days', 7),
+        );
     }
 
     /**
@@ -177,17 +193,5 @@ final readonly class QueueConfig
         $service = $this->container->get($name);
 
         return $service instanceof $type ? $service : throw ConfigurationException::invalidService($name, $type);
-    }
-
-    /**
-     * @throws ConfigurationException
-     *
-     * @mago-expect analysis:mixed-assignment Config values are untyped; the type is checked here.
-     */
-    private function string(string $key, string $default): string
-    {
-        $value = $this->config[$key] ?? $default;
-
-        return is_string($value) ? $value : throw ConfigurationException::invalidSetting($key, 'a string');
     }
 }
