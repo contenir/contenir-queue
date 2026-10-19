@@ -1,0 +1,26 @@
+name: "Continuous Integration"
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  qa:
+    uses: contenir/contenir-qa-tools/.github/workflows/continuous-integration.yml@0.1.x
+    secrets: inherit
+    with:
+      php-versions: '["8.3", "8.4", "8.5"]'
+      mago-version: "1.56.3"
+      run-integration: true
+      # The integration suite runs on SQLite, then again on this MySQL
+      # (composer test-integration sets CONTENIR_TEST_DB_PLATFORM=mysql).
+      db-image: "mysql:8.4"
+      db-port: "3306"
+      db-env-json: '{"MYSQL_ROOT_PASSWORD": "password", "MYSQL_DATABASE": "contenir_queue_test"}'
+      db-health-cmd: "mysqladmin ping -h 127.0.0.1 -uroot -ppassword --silent"
+      test-env-json: '{"CONTENIR_TEST_DB_HOST": "127.0.0.1", "CONTENIR_TEST_DB_PORT": "3306", "CONTENIR_TEST_DB_NAME": "contenir_queue_test", "CONTENIR_TEST_DB_USER": "root", "CONTENIR_TEST_DB_PASSWORD": "password"}'
+      enable-codecov: true
+      coverage-php-version: "8.4"
+      enable-infection: true
+      min-msi: "100"
+      min-covered-msi: "100"
