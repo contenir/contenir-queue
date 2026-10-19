@@ -12,6 +12,8 @@ use Contenir\Queue\Storage\JobStoreInterface;
 use Contenir\Queue\Tests\TestAsset\Clock\MutableClock;
 use Contenir\Queue\Tests\TestAsset\Container\ArrayContainer;
 use Contenir\Queue\Tests\TestAsset\Log\RecordingLogger;
+use Contenir\Queue\Worker\DrainOptions;
+use Contenir\Queue\Worker\WorkerOptions;
 use PhpDb\Adapter\AdapterInterface;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Group;
@@ -34,17 +36,17 @@ final class QueueConfigTest extends TestCase
             'adapter not a string'         => [
                 ['adapter' => 1],
                 static fn(QueueConfig $c): mixed => $c->adapter(),
-                'contenir_queue setting "adapter" must be a string',
+                'The setting "contenir_queue.adapter" must be a string',
             ],
             'backoff not an array'         => [
                 ['backoff' => 5],
                 static fn(QueueConfig $c): mixed => $c->backoff(),
-                'contenir_queue setting "backoff" must be an array',
+                'The setting "contenir_queue.backoff" must be an array',
             ],
             'backoff value not an integer' => [
                 ['backoff' => ['factor' => '3']],
                 static fn(QueueConfig $c): mixed => $c->backoff(),
-                'contenir_queue setting "factor" must be an integer',
+                'The setting "contenir_queue.backoff.factor" must be an integer',
             ],
         ];
     }
@@ -115,6 +117,46 @@ final class QueueConfigTest extends TestCase
     }
 
     #[Test]
+    public function drainOptionsDefaultToAFewJobs(): void
+    {
+        static::assertEquals(new DrainOptions(), self::config()->drainOptions());
+    }
+
+    #[Test]
+    public function drainOptionsFromSettings(): void
+    {
+        static::assertEquals(
+            new DrainOptions(5, 1.5, 'nightly', 300, 900),
+            self::config([
+                'drain'  => ['max_jobs' => 5, 'max_seconds' => 1.5, 'skip_when_heartbeat_within' => 300],
+                'worker' => ['name' => 'nightly', 'stale_after_seconds' => 900],
+            ])->drainOptions(),
+        );
+    }
+
+    #[Test]
+    public function getRefusesAnEntryOfAnotherType(): void
+    {
+        $this->expectException(ConfigurationException::class);
+        $this->expectExceptionMessage(
+            'The container entry "Contenir\\Queue\\Storage\\JobStoreInterface" is not a ' . JobStoreInterface::class,
+        );
+
+        self::config([], [JobStoreInterface::class => new stdClass()])->get(JobStoreInterface::class);
+    }
+
+    #[Test]
+    public function getReturnsTheEntryOfAType(): void
+    {
+        $store = $this->createStub(JobStoreInterface::class);
+
+        static::assertSame(
+            $store,
+            self::config([], [JobStoreInterface::class => $store])->get(JobStoreInterface::class),
+        );
+    }
+
+    #[Test]
     public function handlersComeFromThisContainerByDefault(): void
     {
         $container = new ArrayContainer();
@@ -128,14 +170,6 @@ final class QueueConfigTest extends TestCase
         $handlers = new ArrayContainer();
 
         static::assertSame($handlers, self::config(['handlers' => 'jobs'], ['jobs' => $handlers])->handlers());
-    }
-
-    #[Test]
-    public function jobStoreFromTheContainer(): void
-    {
-        $store = $this->createStub(JobStoreInterface::class);
-
-        static::assertSame($store, self::config([], [JobStoreInterface::class => $store])->jobStore());
     }
 
     #[Test]
@@ -199,5 +233,32 @@ final class QueueConfigTest extends TestCase
     public function systemClockWhenTheContainerHasNone(): void
     {
         static::assertInstanceOf(SystemClock::class, self::config()->clock());
+    }
+
+    #[Test]
+    public function workerOptionsDefaultToCron(): void
+    {
+        static::assertEquals(new WorkerOptions(), self::config()->workerOptions());
+    }
+
+    #[Test]
+    public function workerOptionsFromSettings(): void
+    {
+        static::assertEquals(
+            new WorkerOptions('nightly', ['mail'], 0, 10, 2, 64 * 1024 * 1024, 60, 600, 30),
+            self::config([
+                'worker' => [
+                    'name'                => 'nightly',
+                    'queues'              => ['mail'],
+                    'max_seconds'         => 0,
+                    'max_jobs'            => 10,
+                    'sleep_seconds'       => 2,
+                    'memory_limit_mb'     => 64,
+                    'lock_seconds'        => 60,
+                    'stale_after_seconds' => 600,
+                    'prune_after_days'    => 30,
+                ],
+            ])->workerOptions(),
+        );
     }
 }

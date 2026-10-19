@@ -9,6 +9,8 @@ use DateTimeZone;
 use Override;
 use Psr\Clock\ClockInterface;
 
+use function round;
+
 /**
  * A clock that stands still until a test moves it.
  */
@@ -21,9 +23,10 @@ final class MutableClock implements ClockInterface
         $this->now = new DateTimeImmutable($now, new DateTimeZone('UTC'));
     }
 
-    public function advance(int $seconds): void
+    public function advance(int|float $seconds): void
     {
-        $this->now = $this->now->modify("+{$seconds} seconds");
+        $microseconds = (int) round($seconds * 1_000_000);
+        $this->now    = $this->now->modify("+{$microseconds} usec");
     }
 
     #[Override]

@@ -6,6 +6,7 @@ namespace Contenir\Queue\Container;
 
 use Contenir\Queue\Exception\ConfigurationException;
 use Contenir\Queue\Queue;
+use Contenir\Queue\Storage\JobStoreInterface;
 use Psr\Container\ContainerExceptionInterface;
 use Psr\Container\ContainerInterface;
 
@@ -22,6 +23,6 @@ final class QueueFactory
     {
         $config = QueueConfig::fromContainer($container);
 
-        return new Queue($config->jobStore(), $config->clock());
+        return new Queue($config->get(JobStoreInterface::class), $config->clock());
     }
 }

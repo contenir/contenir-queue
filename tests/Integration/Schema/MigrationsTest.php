@@ -50,6 +50,21 @@ final class MigrationsTest extends TestCase
     }
 
     #[Test]
+    public function createsTheWorkerTable(): void
+    {
+        $columns = array_map(
+            static fn(array $column): string => (string) $column['name'],
+            (new SchemaInspector($this->adapter, TestDatabase::metadata($this->adapter)))->getColumns('queue_worker'),
+        );
+        sort($columns);
+
+        static::assertSame(
+            ['heartbeat_at', 'host', 'locked_until', 'name', 'owner', 'pid', 'started_at'],
+            $columns,
+        );
+    }
+
+    #[Test]
     public function nothingIsPendingAfterMigrating(): void
     {
         static::assertSame([], TestDatabase::migrations($this->adapter)->getPendingMigrations());

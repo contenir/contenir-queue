@@ -6,6 +6,7 @@ namespace Contenir\Queue\Container;
 
 use Contenir\Queue\Exception\ConfigurationException;
 use Contenir\Queue\Job\JobRunner;
+use Contenir\Queue\Storage\JobStoreInterface;
 use Psr\Container\ContainerExceptionInterface;
 use Psr\Container\ContainerInterface;
 
@@ -24,7 +25,7 @@ final class JobRunnerFactory
 
         return new JobRunner(
             $config->handlers(),
-            $config->jobStore(),
+            $config->get(JobStoreInterface::class),
             $config->backoff(),
             $config->clock(),
             $config->logger(),

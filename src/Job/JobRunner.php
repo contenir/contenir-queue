@@ -92,6 +92,21 @@ final readonly class JobRunner
     }
 
     /**
+     * Claim the next due job on the given queues (all when empty) under the
+     * given lock and run it. Null when nothing is due.
+     *
+     * @param list<string> $queues
+     *
+     * @throws StorageException
+     */
+    public function runNext(array $queues, string $lockedBy): ?JobOutcome
+    {
+        $job = $this->jobs->claimNext($queues, $lockedBy, $this->clock->now());
+
+        return null === $job ? null : $this->run($job);
+    }
+
+    /**
      * @throws StorageException
      */
     private function fail(Job $job, string $error): JobOutcome

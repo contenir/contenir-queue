@@ -19,8 +19,13 @@ final class ConfigurationException extends UnexpectedValueException
         return new self("The container entry \"{$name}\" is not a {$type}");
     }
 
-    public static function invalidSetting(string $key, string $expected): self
+    public static function invalidSetting(string $path, string $expected): self
     {
-        return new self("contenir_queue setting \"{$key}\" must be {$expected}");
+        return new self("The setting \"{$path}\" must be {$expected}");
+    }
+
+    public static function noContainer(string $file, string $problem): self
+    {
+        return new self("The container file \"{$file}\" {$problem}");
     }
 }

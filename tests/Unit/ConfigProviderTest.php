@@ -5,15 +5,24 @@ declare(strict_types=1);
 namespace Contenir\Queue\Tests\Unit;
 
 use Contenir\Queue\ConfigProvider;
+use Contenir\Queue\Container\DrainerFactory;
+use Contenir\Queue\Container\HousekeepingFactory;
 use Contenir\Queue\Container\JobRunnerFactory;
 use Contenir\Queue\Container\PhpDbJobStoreFactory;
+use Contenir\Queue\Container\PhpDbWorkerStoreFactory;
 use Contenir\Queue\Container\QueueFactory;
+use Contenir\Queue\Container\WorkerFactory;
 use Contenir\Queue\Job\JobRunner;
 use Contenir\Queue\Queue;
 use Contenir\Queue\QueueInterface;
 use Contenir\Queue\Schema\Version20261019000100CreateQueueJob;
 use Contenir\Queue\Storage\JobStoreInterface;
 use Contenir\Queue\Storage\PhpDbJobStore;
+use Contenir\Queue\Storage\PhpDbWorkerStore;
+use Contenir\Queue\Storage\WorkerStoreInterface;
+use Contenir\Queue\Worker\Drainer;
+use Contenir\Queue\Worker\Housekeeping;
+use Contenir\Queue\Worker\Worker;
 use PhpDb\Adapter\AdapterInterface;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\Attributes\Test;
@@ -66,13 +75,18 @@ final class ConfigProviderTest extends TestCase
         static::assertSame(
             [
                 'aliases'   => [
-                    QueueInterface::class    => Queue::class,
-                    JobStoreInterface::class => PhpDbJobStore::class,
+                    QueueInterface::class       => Queue::class,
+                    JobStoreInterface::class    => PhpDbJobStore::class,
+                    WorkerStoreInterface::class => PhpDbWorkerStore::class,
                 ],
                 'factories' => [
-                    JobRunner::class     => JobRunnerFactory::class,
-                    PhpDbJobStore::class => PhpDbJobStoreFactory::class,
-                    Queue::class         => QueueFactory::class,
+                    Drainer::class          => DrainerFactory::class,
+                    Housekeeping::class     => HousekeepingFactory::class,
+                    JobRunner::class        => JobRunnerFactory::class,
+                    PhpDbJobStore::class    => PhpDbJobStoreFactory::class,
+                    PhpDbWorkerStore::class => PhpDbWorkerStoreFactory::class,
+                    Queue::class            => QueueFactory::class,
+                    Worker::class           => WorkerFactory::class,
                 ],
             ],
             (new ConfigProvider())()['dependencies'],
