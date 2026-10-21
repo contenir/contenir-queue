@@ -24,7 +24,7 @@ final class Platform
             'MySQL'  => true,
             'SQLite' => false,
             default  => throw new UnexpectedValueException(
-                "contenir/queue supports MySQL and SQLite, not {$adapter->getPlatform()->getName()}",
+                "contenir/contenir-queue supports MySQL and SQLite, not {$adapter->getPlatform()->getName()}",
             ),
         };
     }

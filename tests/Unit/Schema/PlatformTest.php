@@ -26,7 +26,7 @@ final class PlatformTest extends TestCase
     public function refusesOtherPlatforms(): void
     {
         $this->expectException(UnexpectedValueException::class);
-        $this->expectExceptionMessage('contenir/queue supports MySQL and SQLite, not PostgreSQL');
+        $this->expectExceptionMessage('contenir/contenir-queue supports MySQL and SQLite, not PostgreSQL');
 
         Platform::isMysql($this->adapterNamed('PostgreSQL'));
     }

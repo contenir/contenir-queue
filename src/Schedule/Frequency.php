@@ -12,8 +12,8 @@ use InvalidArgumentException;
 /**
  * How often a schedule runs: every so many minutes, or on a cron expression
  * read in a time zone. The worker looks for due schedules on every turn, so a
- * minute is the finest interval. The names follow contenir/extension-api's
- * Frequency, which hosts map onto this one.
+ * minute is the finest interval. The names follow
+ * contenir/contenir-extension-api's Frequency, which hosts map onto this one.
  *
  * @api
  */

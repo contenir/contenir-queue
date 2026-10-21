@@ -1,4 +1,4 @@
-# contenir/queue
+# contenir/contenir-queue
 
 [![Continuous Integration](https://github.com/contenir/contenir-queue/actions/workflows/continuous-integration.yml/badge.svg)](https://github.com/contenir/contenir-queue/actions/workflows/continuous-integration.yml)
 [![codecov](https://codecov.io/gh/contenir/contenir-queue/graph/badge.svg)](https://codecov.io/gh/contenir/contenir-queue)
@@ -30,7 +30,7 @@ storage is [php-db](https://github.com/php-db/phpdb). There are no Laminas MVC o
 ## Install
 
 ```bash
-composer require contenir/queue
+composer require contenir/contenir-queue
 ```
 
 php-db 0.6 has no stable release yet, so the site's `composer.json` needs `"minimum-stability": "dev"` with
@@ -205,8 +205,8 @@ $schedules->add(new Schedule(
 ));
 ```
 
-`Frequency::everyMinutes()` and `Frequency::cron()` match contenir/extension-api's `Frequency`, so a host maps an
-add-on's `Registry::schedule()` declarations onto these directly. A minute is the finest interval.
+`Frequency::everyMinutes()` and `Frequency::cron()` match contenir/contenir-extension-api's `Frequency`, so a host
+maps an add-on's `Registry::schedule()` declarations onto these directly. A minute is the finest interval.
 
 Cron expressions have the standard five fields: minute, hour, day of month, month and day of week. A field takes `*`,
 numbers, ranges (`1-5`), steps (`*/15`, `1-30/5`) and lists (`0,30`). Months and days also take their names (`jan`,
