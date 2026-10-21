@@ -2,7 +2,7 @@
 <?php
 
 /**
- * Runs the contenir/queue worker. Cron runs it every minute:
+ * Runs the contenir/contenir-queue worker. Cron runs it every minute:
  *
  *     * * * * * cd /path/to/site && php vendor/bin/contenir-queue
  *

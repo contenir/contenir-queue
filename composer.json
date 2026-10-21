@@ -1,5 +1,5 @@
 {
-    "name": "contenir/queue",
+    "name": "contenir/contenir-queue",
     "description": "Durable jobs, retries and schedules for Contenir CMS, with a cron-friendly worker. Framework free: PSR-11, PSR-3 and PSR-20, stored with php-db on MySQL or SQLite.",
     "type": "library",
     "license": "BSD-3-Clause",
@@ -34,6 +34,9 @@
         "php-db/phpdb-mysql": "0.5.x-dev",
         "php-db/phpdb-sqlite": "0.3.x-dev",
         "phpunit/phpunit": "^11.5.42"
+    },
+    "replace": {
+        "contenir/queue": "self.version"
     },
     "bin": [
         "bin/contenir-queue"

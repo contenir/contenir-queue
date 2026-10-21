@@ -4,7 +4,14 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project
 adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] - 2026-10-19
+## [0.1.1] - 2026-10-21
+
+### Changed
+
+- Renamed to contenir/contenir-queue, to match its repository. It replaces contenir/queue, so a project that still
+  requires the old name gets this package, and never both. The namespaces are unchanged.
+
+## [0.1.0] - 2026-10-19
 
 ### Added
 
