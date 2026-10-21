@@ -16,7 +16,7 @@ jobs:
     secrets: inherit
     with:
       php-versions: '["8.3", "8.4", "8.5"]'
-      mago-version: "1.56.3"
+      mago-version: "1.57.0"
       run-integration: true
       # The integration suite runs on SQLite, then again on this MySQL
       # (composer test-integration sets CONTENIR_TEST_DB_PLATFORM=mysql).
